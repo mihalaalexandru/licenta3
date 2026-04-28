@@ -15,20 +15,20 @@ const getAssetHistory = async (req, res) => {
   try {
     const { id } = req.params;
     
-    let history = await prisma.priceHistory.findMany({
+    const history = await prisma.priceHistory.findMany({
       where: { assetId: parseInt(id) },
       orderBy: { id: 'desc' },
-      take: 40
+      take: 60 // MODIFICAT AICI: 60 de puncte (3 minute la interval de 3s)
     });
 
-    history = history.reverse();
-
-    const formattedHistory = history.map(record => {
-      return {
-        time: new Date(record.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        price: Number(record.price)
-      };
-    });
+    const formattedHistory = history.reverse().map(record => ({
+      time: new Date(record.createdAt).toLocaleTimeString([], { 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        second: '2-digit' 
+      }),
+      price: Number(record.price)
+    }));
 
     res.json(formattedHistory);
   } catch (error) {

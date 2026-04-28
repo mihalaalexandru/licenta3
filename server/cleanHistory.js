@@ -4,7 +4,6 @@ const prisma = new PrismaClient();
 async function cleanOldHistory() {
   console.log('⏳ Incepem curatenia de primavara in baza de date...');
   
-  // Setam limita: tot ce e mai vechi de 24 de ore va fi sters
   const limitDate = new Date();
   limitDate.setHours(limitDate.getHours() - 24);
 

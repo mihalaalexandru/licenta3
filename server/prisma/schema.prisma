@@ -10,7 +10,8 @@ datasource db {
 model User {
   id               Int              @id @default(autoincrement())
   email            String           @unique
-  password         String
+  password         String?
+  googleId         String?  @unique
   name             String?
   balance          Float            @default(0)
   currency         String           @default("USD")
@@ -22,6 +23,33 @@ model User {
   watchlists       Watchlist[]
   balanceHistory   BalanceHistory[]
   createdAt        DateTime         @default(now())
+  twoFactorSecret    String?
+  isTwoFactorEnabled Boolean  @default(false)
+  priceAlerts        PriceAlert[]
+  autoOrders         AutoOrder[]
+}
+
+model AutoOrder {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  assetId     Int
+  symbol      String
+  type        String
+  targetPrice Float
+  quantity    Float
+  status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PriceAlert {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  symbol      String
+  targetPrice Float
+  condition   String
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model BalanceHistory {

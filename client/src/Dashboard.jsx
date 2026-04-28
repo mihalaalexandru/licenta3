@@ -1,10 +1,14 @@
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { motion } from 'framer-motion';
+import { toast } from 'sonner';
 import { 
+  ArrowUpRight,
+  ArrowDownRight,
   LayoutDashboard, 
   LineChart as LineChartIcon, 
   PieChart as PieChartIcon, 
@@ -14,25 +18,37 @@ import {
   TrendingUp,
   TrendingDown,
   Search,
-  Plus,
   Star,
   Activity,
   Download,
   Info,
   Newspaper,
-  Calendar,
-  Moon,
-  Sun,
   CreditCard,
   MessageSquare,
   X,
-  Send
+  Send,
+  Bell,
+  Clock,
+  Wallet,
+  Sparkles,
+  Zap,
+  Moon,
+  Sun
 } from 'lucide-react';
 import './Dashboard.css';
+import TradingViewChart from './TradingViewChart';
+import { useTheme } from './ThemeContext';
+import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
+import { Input } from "./components/ui/input";
+import { Button } from "./components/ui/button";
+import { Card, CardContent } from "./components/ui/card";
+import { Badge } from "./components/ui/badge";
+import { Separator } from "./components/ui/separator";
 
 axios.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
-  if (config.url.includes('localhost:3000') && token) {
+  if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
@@ -50,6 +66,28 @@ const CURRENCY_SYMBOLS = {
   RON: 'RON'
 };
 
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.1
+    }
+  }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  show: { 
+    opacity: 1, 
+    y: 0, 
+    transition: { 
+      duration: 0.5, 
+      ease: "easeOut" 
+    } 
+  }
+};
+
 function Dashboard() {
   const [watchlist, setWatchlist] = useState([]);
   const [transactions, setTransactions] = useState([]);
@@ -65,6 +103,10 @@ function Dashboard() {
   const [selectedSellAsset, setSelectedSellAsset] = useState(null);
   const [sellQuantity, setSellQuantity] = useState('');
 
+  const [orderType, setOrderType] = useState('MARKET');
+  const [limitPrice, setLimitPrice] = useState('');
+  const [autoOrders, setAutoOrders] = useState([]);
+
   const [isChartModalOpen, setIsChartModalOpen] = useState(false);
   const [selectedChartAsset, setSelectedChartAsset] = useState(null);
   const [chartData, setChartData] = useState([]);
@@ -78,6 +120,20 @@ function Dashboard() {
     cvv: ''
   });
 
+  const [is2FAModalOpen, setIs2FAModalOpen] = useState(false);
+  const [qrCodeUrl, setQrCodeUrl] = useState('');
+  const [twoFactorCode, setTwoFactorCode] = useState('');
+  
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteTwoFactorCode, setDeleteTwoFactorCode] = useState('');
+  
+  const [priceAlerts, setPriceAlerts] = useState([]);
+  const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
+  const [selectedAlertAsset, setSelectedAlertAsset] = useState(null);
+  const [alertTargetPrice, setAlertTargetPrice] = useState('');
+  const [alertCondition, setAlertCondition] = useState('ABOVE');
+  
   const [user, setUser] = useState(null);
   const [activeView, setActiveView] = useState('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
@@ -85,15 +141,18 @@ function Dashboard() {
   const [alerts, setAlerts] = useState([]);
   const [news, setNews] = useState([]);
   const [isNewsLoading, setIsNewsLoading] = useState(false);
-  const [newsDateFilter, setNewsDateFilter] = useState('');
-  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState([
-    { text: "Salut! Sunt asistentul tău InvestPro. Cu ce informații despre piețe te pot ajuta?", sender: 'bot' }
+    { text: "Hello! I am your InvestPro AI assistant. How can I help you with the markets today?", sender: 'bot' }
   ]);
   const fileInputRef = useRef(null);
   const navigate = useNavigate();
+  const { isPremium, toggleTheme, colors } = useTheme();
+  const [marketPage, setMarketPage] = useState(1);
+  const assetsPerPage = 10;
+
+  const [chartTradeSide, setChartTradeSide] = useState('BUY');
 
   const portfolioPieData = portfolio.map(item => ({
     name: item.asset.symbol,
@@ -128,13 +187,11 @@ function Dashboard() {
         currency: newCurrency,
         profilePicture: user.profilePicture
       });
-    } catch (err) {}
+      toast.success(`Currency changed to ${newCurrency}`);
+    } catch (err) {
+      toast.error('Failed to update currency preference');
+    }
   };
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
-    localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
-  }, [isDarkMode]);
 
   const fetchAssets = async () => {
     try {
@@ -142,6 +199,82 @@ function Dashboard() {
       setAssets(response.data);
     } catch (error) {}
   };
+
+  useEffect(() => {
+    if (assets.length > 0) {
+      setSelectedChartAsset(prev => {
+        if (!prev) return prev;
+        const liveAsset = assets.find(a => a.id === prev.id);
+        return liveAsset && liveAsset.currentPrice !== prev.currentPrice ? liveAsset : prev;
+      });
+
+      setSelectedAsset(prev => {
+        if (!prev) return prev;
+        const liveAsset = assets.find(a => a.id === prev.id);
+        return liveAsset && liveAsset.currentPrice !== prev.currentPrice ? liveAsset : prev;
+      });
+
+      setSelectedSellAsset(prev => {
+        if (!prev) return prev;
+        const liveAsset = assets.find(a => a.id === prev.asset.id);
+        return liveAsset && liveAsset.currentPrice !== prev.asset.currentPrice 
+          ? { ...prev, asset: liveAsset } 
+          : prev;
+      });
+
+      setSelectedAlertAsset(prev => {
+        if (!prev) return prev;
+        const liveAsset = assets.find(a => a.id === prev.id);
+        return liveAsset && liveAsset.currentPrice !== prev.currentPrice ? liveAsset : prev;
+      });
+    }
+  }, [assets]);
+
+  useEffect(() => {
+    if (user && user.id) {
+      axios.get(`http://localhost:3000/api/alerts/${user.id}`)
+        .then(res => setPriceAlerts(res.data))
+        .catch(err => {});
+        
+      axios.get(`http://localhost:3000/api/auto-orders/${user.id}`)
+        .then(res => setAutoOrders(res.data))
+        .catch(err => {});
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (assets.length > 0 && priceAlerts.length > 0) {
+      priceAlerts.forEach(alert => {
+        const asset = assets.find(a => a.symbol === alert.symbol);
+        if (asset) {
+          let isTriggered = false;
+          if (alert.condition === 'ABOVE' && asset.currentPrice >= alert.targetPrice) {
+            isTriggered = true;
+          } else if (alert.condition === 'BELOW' && asset.currentPrice <= alert.targetPrice) {
+            isTriggered = true;
+          }
+
+          if (isTriggered) {
+            try {
+              const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+              audio.play().catch(err => {});
+            } catch(e) {}
+
+            toast.success(
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <strong style={{ fontSize: '16px' }}>🎯 Price Alert: {alert.symbol}</strong>
+                <span>Hit your target of {formatCurrency(alert.targetPrice)}!</span>
+              </div>, 
+              { duration: 8000, style: { background: '#10b981', color: 'white', border: 'none' } }
+            );
+
+            setPriceAlerts(prev => prev.filter(a => a.id !== alert.id));
+            axios.delete(`http://localhost:3000/api/alerts/${alert.id}`).catch(() => {});
+          }
+        }
+      });
+    }
+  }, [assets, priceAlerts]);
 
   useEffect(() => {
     const fetchNews = async () => {
@@ -163,7 +296,7 @@ function Dashboard() {
     };
     fetchNews();
   }, [activeView]);
-   
+    
   useEffect(() => {
     const fetchTransactions = async () => {
       try {
@@ -174,7 +307,7 @@ function Dashboard() {
       } catch (err) {}
     };
 
-    if (activeView === 'transactions') {
+    if (activeView === 'transactions' || activeView === 'dashboard') {
       fetchTransactions();
     }
   }, [activeView, user]);
@@ -194,11 +327,39 @@ function Dashboard() {
         if (isChartModalOpen && selectedChartAsset) {
           handleRefreshChartData(selectedChartAsset.id);
         }
-      }, 5000);
+      }, 3000);
 
       return () => clearInterval(interval);
     }
   }, [navigate, isChartModalOpen, selectedChartAsset]);
+
+  // Apply premium theme styles
+  useEffect(() => {
+    if (isPremium) {
+      document.documentElement.style.setProperty('--bg-main', '#1a1d27');
+      document.documentElement.style.setProperty('--bg-card', '#18202d');
+      document.documentElement.style.setProperty('--bg-hover', '#212a38');
+      document.documentElement.style.setProperty('--text-main', '#f0f3f7');
+      document.documentElement.style.setProperty('--text-secondary', '#d1d5db');
+      document.documentElement.style.setProperty('--text-muted', '#848e9c');
+      document.documentElement.style.setProperty('--border-color', 'rgba(132, 142, 156, 0.2)');
+      document.body.style.background = '#0b0e14';
+    } else {
+      // Reset to default CSS variables
+      document.documentElement.style.removeProperty('--bg-main');
+      document.documentElement.style.removeProperty('--bg-card');
+      document.documentElement.style.removeProperty('--bg-hover');
+      document.documentElement.style.removeProperty('--text-main');
+      document.documentElement.style.removeProperty('--text-secondary');
+      document.documentElement.style.removeProperty('--text-muted');
+      document.documentElement.style.removeProperty('--border-color');
+      document.body.style.background = '';
+    }
+  }, [isPremium]);
+
+  useEffect(() => {
+    setMarketPage(1);
+  }, [searchQuery, marketFilter]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -212,6 +373,9 @@ function Dashboard() {
 
           const watchRes = await axios.get(`http://localhost:3000/api/watchlist/${user.id}`);
           setWatchlist(watchRes.data);
+          
+          const autoRes = await axios.get(`http://localhost:3000/api/auto-orders/${user.id}`);
+          setAutoOrders(autoRes.data);
         }
       } catch (err) {}
     };
@@ -296,7 +460,12 @@ function Dashboard() {
 
   const handleOpenChart = async (asset) => {
     setSelectedChartAsset(asset);
+    setSelectedAsset(asset);
+    const pItem = portfolio.find(p => p.asset.id === asset.id);
+    if (pItem) setSelectedSellAsset(pItem);
+    
     setIsChartModalOpen(true);
+    setChartTradeSide('BUY');
     setChartData([]);
     try {
       const res = await axios.get(`http://localhost:3000/api/assets/history/${asset.id}`);
@@ -312,11 +481,44 @@ function Dashboard() {
       });
       const watchRes = await axios.get(`http://localhost:3000/api/watchlist/${user.id}`);
       setWatchlist(watchRes.data);
-    } catch (err) {}
+      
+      const isAdded = watchRes.data.some(w => w.assetId === assetId);
+      if(isAdded) {
+        toast.success('Asset added to watchlist');
+      } else {
+        toast.info('Asset removed from watchlist');
+      }
+    } catch (err) {
+      toast.error('Failed to update watchlist');
+    }
   };
 
   const handleBuyAsset = async () => {
     if (!buyQuantity || buyQuantity <= 0) return;
+    
+    if (orderType === 'LIMIT') {
+      if (!limitPrice || limitPrice <= 0) return toast.warning('Please enter a valid target price');
+      try {
+        const res = await axios.post('http://localhost:3000/api/auto-orders', {
+          userId: user.id,
+          assetId: selectedAsset.id,
+          symbol: selectedAsset.symbol,
+          type: 'BUY',
+          targetPrice: limitPrice,
+          quantity: buyQuantity
+        });
+        setAutoOrders([res.data, ...autoOrders]);
+        toast.success(`Limit Buy order placed for ${buyQuantity} ${selectedAsset.symbol}`);
+        setIsBuyModalOpen(false);
+        setBuyQuantity('');
+        setLimitPrice('');
+        setOrderType('MARKET');
+      } catch (err) {
+        toast.error('Failed to place limit order');
+      }
+      return;
+    }
+
     try {
       const res = await axios.post('http://localhost:3000/api/trade/buy', {
         userId: user.id,
@@ -326,18 +528,51 @@ function Dashboard() {
       const updatedUser = { ...user, balance: res.data.newBalance };
       setUser(updatedUser);
       localStorage.setItem('user', JSON.stringify(updatedUser));
-      alert('Asset purchased successfully!');
+      
+      const portRes = await axios.get(`http://localhost:3000/api/portfolio/${user.id}`);
+      setPortfolio(portRes.data);
+      
+      const histRes = await axios.get(`http://localhost:3000/api/portfolio/history/${user.id}`);
+      setBalanceHistory(histRes.data);
+
+      const transRes = await axios.get(`http://localhost:3000/api/trade/history/${user.id}`);
+      setTransactions(transRes.data);
+
+      toast.success(`Successfully purchased ${buyQuantity} ${selectedAsset.symbol}`);
       setIsBuyModalOpen(false);
       setBuyQuantity('');
     } catch (err) {
-      alert(err.response?.data?.message || 'Transaction failed');
+      toast.error(err.response?.data?.message || 'Transaction failed');
     }
   };
 
   const handleSellAsset = async () => {
     if (!sellQuantity || sellQuantity <= 0) return;
     if (sellQuantity > selectedSellAsset.quantity) {
-      return alert('You cannot sell more than you own!');
+      return toast.warning('You cannot sell more than you own!');
+    }
+
+    if (orderType === 'LIMIT') {
+      if (!limitPrice || limitPrice <= 0) return toast.warning('Please enter a valid target price');
+      try {
+        const res = await axios.post('http://localhost:3000/api/auto-orders', {
+          userId: user.id,
+          assetId: selectedSellAsset.asset.id,
+          symbol: selectedSellAsset.asset.symbol,
+          type: 'SELL',
+          targetPrice: limitPrice,
+          quantity: sellQuantity
+        });
+        setAutoOrders([res.data, ...autoOrders]);
+        toast.success(`Limit Sell order placed for ${sellQuantity} ${selectedSellAsset.asset.symbol}`);
+        setIsSellModalOpen(false);
+        setSellQuantity('');
+        setLimitPrice('');
+        setOrderType('MARKET');
+      } catch (err) {
+        toast.error('Failed to place limit order');
+      }
+      return;
     }
 
     try {
@@ -351,20 +586,30 @@ function Dashboard() {
       setUser(updatedUser);
       localStorage.setItem('user', JSON.stringify(updatedUser));
       
-      alert('Asset sold successfully!');
+      toast.success(`Successfully sold ${sellQuantity} ${selectedSellAsset.asset.symbol}`);
       setIsSellModalOpen(false);
       setSellQuantity('');
       
       const portRes = await axios.get(`http://localhost:3000/api/portfolio/${user.id}`);
       setPortfolio(portRes.data);
     } catch (err) {
-      alert(err.response?.data?.message || 'Transaction failed');
+      toast.error(err.response?.data?.message || 'Transaction failed');
+    }
+  };
+
+  const handleCancelAutoOrder = async (id) => {
+    try {
+      await axios.delete(`http://localhost:3000/api/auto-orders/${id}`);
+      setAutoOrders(autoOrders.filter(a => a.id !== id));
+      toast.success('Auto order cancelled');
+    } catch (err) {
+      toast.error('Failed to cancel order');
     }
   };
 
   const handleDepositSubmit = async () => {
     if (!depositData.amount || isNaN(depositData.amount) || parseFloat(depositData.amount) <= 0) {
-      return alert('Please enter a valid amount.');
+      return toast.warning('Please enter a valid amount.');
     }
     
     try {
@@ -378,11 +623,41 @@ function Dashboard() {
       setUser(updatedUser);
       localStorage.setItem('user', JSON.stringify(updatedUser));
       
-      alert('Funds deposited successfully!');
+      toast.success('Funds deposited successfully!');
       setIsDepositModalOpen(false);
       setDepositData({ amount: '', cardNumber: '', cardName: '', expiry: '', cvv: '' });
     } catch (err) {
-      alert(err.response?.data?.message || 'Deposit failed');
+      toast.error(err.response?.data?.message || 'Deposit failed');
+    }
+  };
+
+  const handleAddPriceAlert = async (e) => {
+    e.preventDefault();
+    if (!alertTargetPrice) return toast.warning('Please enter a target price');
+    
+    try {
+      const res = await axios.post('http://localhost:3000/api/alerts', {
+        userId: user.id,
+        symbol: selectedAlertAsset.symbol,
+        targetPrice: alertTargetPrice,
+        condition: alertCondition
+      });
+      setPriceAlerts([res.data, ...priceAlerts]);
+      setAlertTargetPrice('');
+      toast.success('Price alert created successfully!');
+      setIsAlertModalOpen(false);
+    } catch (err) {
+      toast.error('Failed to create alert');
+    }
+  };
+
+  const handleDeleteAlert = async (id) => {
+    try {
+      await axios.delete(`http://localhost:3000/api/alerts/${id}`);
+      setPriceAlerts(priceAlerts.filter(a => a.id !== id));
+      toast.success('Alert removed');
+    } catch (err) {
+      toast.error('Failed to remove alert');
     }
   };
 
@@ -425,8 +700,9 @@ function Dashboard() {
       });
 
       doc.save(`InvestPro_Transactions_${new Date().toISOString().split('T')[0]}.pdf`);
+      toast.success('PDF Exported Successfully!');
     } catch (error) {
-      alert('Error generating PDF. Please try again.');
+      toast.error('Error generating PDF. Please try again.');
     }
   };
 
@@ -447,7 +723,7 @@ function Dashboard() {
         throw new Error("API Key missing");
       }
 
-      const promptText = `Ești InvestPro AI, un asistent financiar inteligent integrat într-o platformă de tranzacționare. Răspunde concis, prietenos, profesionist și strict în limba română la următoarea întrebare a utilizatorului: ${userMsg.text}`;
+      const promptText = `You are InvestPro AI, a smart financial assistant integrated into a trading platform. Answer concisely, friendly, professionally and strictly in English to the following user question: ${userMsg.text}`;
 
       const response = await axios.post(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
@@ -469,7 +745,7 @@ function Dashboard() {
       setChatMessages(prev => {
         const newMsgs = [...prev];
         newMsgs.pop();
-        newMsgs.push({ text: "Ne pare rău, am întâmpinat o eroare de conexiune cu serverul AI.", sender: 'bot' });
+        newMsgs.push({ text: "Sorry, I encountered a connection error with the AI server.", sender: 'bot' });
         return newMsgs;
       });
     }
@@ -478,144 +754,333 @@ function Dashboard() {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.removeItem('trustedDeviceToken');
+    toast.info('Logged out successfully');
     navigate('/');
   };
 
+  const handleGenerate2FA = async () => {
+    try {
+      const res = await axios.post('http://localhost:3000/api/auth/2fa/generate', { userId: user.id });
+      setQrCodeUrl(res.data.qrCodeUrl);
+      setIs2FAModalOpen(true);
+    } catch (err) {
+      toast.error('Failed to generate 2FA');
+    }
+  };
+
+  const handleEnable2FA = async () => {
+    if (twoFactorCode.length !== 6) return toast.warning('Please enter a 6-digit code');
+    try {
+      const res = await axios.post('http://localhost:3000/api/auth/2fa/enable', {
+        userId: user.id,
+        token: twoFactorCode
+      });
+      const updatedUser = { ...user, isTwoFactorEnabled: true };
+      setUser(updatedUser);
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      toast.success(res.data.message);
+      setIs2FAModalOpen(false);
+      setTwoFactorCode('');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Invalid code');
+    }
+  };
+
+  const handleDisable2FA = async () => {
+    if (!window.confirm('Are you sure you want to disable 2FA? This will reduce your account security.')) return;
+    try {
+      const res = await axios.post('http://localhost:3000/api/auth/2fa/disable', { userId: user.id });
+      const updatedUser = { ...user, isTwoFactorEnabled: false };
+      setUser(updatedUser);
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      toast.success(res.data.message);
+    } catch (err) {
+      toast.error('Failed to disable 2FA');
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!deletePassword && !(user.password && user.password.includes('Google!'))) {
+      return toast.warning('Password is required to delete your account.');
+    }
+    if (user?.isTwoFactorEnabled && deleteTwoFactorCode.length !== 6) {
+      return toast.warning('Valid 2FA code is required.');
+    }
+
+    try {
+      await axios.delete(`http://localhost:3000/api/auth/delete-account/${user.id}`, {
+        data: {
+          password: deletePassword,
+          twoFactorCode: deleteTwoFactorCode
+        }
+      });
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      localStorage.removeItem('trustedDeviceToken');
+      toast.success('Account successfully deleted. We are sorry to see you go.');
+      navigate('/');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Error deleting account');
+    }
+  };
+
+  const formatChartData = (historicalData) => {
+  if (!historicalData || historicalData.length === 0) return { candles: [], volume: [] };
+
+  let lastValidTime = Math.floor(Date.now() / 1000) - (historicalData.length * 60);
+  const candles = [];
+  const volume = [];
+
+  historicalData.forEach((item, index, arr) => {
+    const rawTime = item.time || item.date;
+    let timestamp = new Date(rawTime).getTime();
+
+    if (isNaN(timestamp) && typeof rawTime === 'string') {
+      timestamp = new Date(`${new Date().toDateString()} ${rawTime}`).getTime();
+    }
+
+    let tvTime = Math.floor(timestamp / 1000);
+    if (isNaN(tvTime)) tvTime = lastValidTime + 60;
+    if (tvTime <= lastValidTime) tvTime = lastValidTime + 60; 
+    lastValidTime = tvTime;
+
+    const prevPrice = index === 0 ? item.price : arr[index - 1].price;
+    const open = prevPrice;
+    const close = item.price;
+    const volatility = item.price * 0.0015; 
+    
+    const priceDiff = Math.abs(close - open);
+    const baseVolume = 1000 + Math.random() * 5000;
+    const simulatedVolume = baseVolume + (priceDiff * 10000);
+    const isUp = close >= open;
+
+    candles.push({
+      time: tvTime,
+      open: open,
+      high: Math.max(open, close) + volatility,
+      low: Math.min(open, close) - volatility,
+      close: close
+    });
+
+    volume.push({
+      time: tvTime,
+      value: simulatedVolume,
+      color: isUp ? 'rgba(46, 189, 133, 0.4)' : 'rgba(246, 70, 93, 0.4)'
+    });
+  });
+
+  return { candles, volume };
+};
+
   const renderContent = () => {
+    const totalPortfolioValue = portfolio.reduce((sum, item) => sum + item.currentValue, 0);
+    const totalInvested = portfolio.reduce((sum, item) => sum + (item.quantity * item.avgBuyPrice), 0);
+    const totalPnL = totalPortfolioValue - totalInvested;
+    const isPnLPositive = totalPnL >= 0;
+    const roiPercentage = totalInvested > 0 ? ((totalPnL / totalInvested) * 100).toFixed(2) : '0.00';
+
     switch (activeView) {
       case 'dashboard':
         return (
-          <div className="dashboard-section">
-            <header className="header">
-              <h1>Overview</h1>
-              <p>Welcome back, {user?.name || 'Investor'}. Here is what's happening with your money.</p>
-            </header>
+          <motion.div variants={containerVariants} initial="hidden" animate="show" className="dashboard-section" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <motion.header variants={itemVariants} className="header" style={{ marginBottom: '0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '16px' }}>
+              <div>
+                <h1 style={{ fontSize: '28px', color: 'var(--text-main)', marginBottom: '8px' }}>Overview</h1>
+                <p style={{ color: 'var(--text-muted)', margin: 0 }}>Welcome back, {user?.name || 'Investor'}. Here is what's happening with your money.</p>
+              </div>
+              <button 
+                onClick={() => setIsDepositModalOpen(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#3b82f6', color: 'white', border: 'none', padding: '12px 24px', borderRadius: '12px', fontSize: '15px', fontWeight: '700', cursor: 'pointer', transition: 'background 0.2s', boxShadow: '0 4px 15px rgba(59, 130, 246, 0.3)' }}
+              >
+                <CreditCard size={18} /> 
+                Add Funds
+              </button>
+            </motion.header>
 
             {alerts.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+              <motion.div variants={itemVariants} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {alerts.map(alert => {
                   let bgColor, borderColor, textColor;
                   if (alert.type === 'warning' || alert.type === 'danger') {
-                    bgColor = isDarkMode ? 'rgba(239, 68, 68, 0.1)' : '#fef2f2'; 
+                    bgColor = 'rgba(239, 68, 68, 0.15)'; 
                     borderColor = '#ef4444'; 
-                    textColor = isDarkMode ? '#fca5a5' : '#b91c1c';
+                    textColor = '#ef4444';
                   } else if (alert.type === 'success') {
-                    bgColor = isDarkMode ? 'rgba(16, 185, 129, 0.1)' : '#f0fdf4'; 
+                    bgColor = 'rgba(16, 185, 129, 0.15)'; 
                     borderColor = '#10b981'; 
-                    textColor = isDarkMode ? '#6ee7b7' : '#047857';
+                    textColor = '#10b981';
                   } else {
-                    bgColor = isDarkMode ? 'rgba(59, 130, 246, 0.1)' : '#eff6ff'; 
+                    bgColor = 'rgba(59, 130, 246, 0.15)'; 
                     borderColor = '#3b82f6'; 
-                    textColor = isDarkMode ? '#93c5fd' : '#1d4ed8';
+                    textColor = '#3b82f6';
                   }
 
                   return (
-                    <div key={alert.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '16px', borderRadius: '8px', borderLeft: `4px solid ${borderColor}`, backgroundColor: bgColor, color: 'var(--text-main)', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)' }}>
+                    <div key={alert.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '16px', borderRadius: '12px', borderLeft: `4px solid ${borderColor}`, backgroundColor: bgColor, color: 'var(--text-main)', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)' }}>
                       <div style={{ color: textColor, display: 'flex', alignItems: 'center' }}>
                         {alert.icon}
                       </div>
-                      <div style={{ fontSize: '14px', fontWeight: '500', color: textColor }}>{alert.text}</div>
+                      <div style={{ fontSize: '14px', fontWeight: '600', color: textColor }}>{alert.text}</div>
                     </div>
                   );
                 })}
-              </div>
+              </motion.div>
             )}
 
-            <div className="dashboard-grid">
-              <div className="stat-card" style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <motion.div variants={itemVariants} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
+              <motion.div variants={itemVariants} style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                  <p style={{ fontSize: '14px', margin: '0 0 8px 0', color: 'var(--text-muted)' }}>Available Balance</p>
-                  <h2 style={{ fontSize: '32px', margin: 0, color: 'var(--text-main)' }}>
-                    {formatCurrency(user?.balance || 0)}
-                  </h2>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '8px' }}>Budget</p>
+                  <h3 style={{ color: 'var(--text-main)', fontSize: '24px', fontWeight: 'bold', margin: '0' }}>{formatCurrency(user?.balance || 0)}</h3>
                 </div>
-                <button 
-                  className="trade-btn-outline"
-                  onClick={() => setIsDepositModalOpen(true)}
-                >
-                  <CreditCard size={16} style={{ marginRight: '8px', verticalAlign: 'middle' }} /> 
-                  Add Funds
-                </button>
-              </div>
+                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'linear-gradient(135deg, #3ea8ff, #0b78ff)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ color: 'white', fontSize: '24px', fontWeight: 'bold' }}>$</span>
+                </div>
+              </motion.div>
 
-              <div className="stat-card" style={{ gridColumn: 'span 2', minHeight: '350px' }}>
-                <h3 style={{ fontSize: '16px', marginBottom: '24px', color: 'var(--text-main)' }}>Balance History</h3>
-                <div style={{ width: '100%', height: '300px' }}>
-                  <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+              <motion.div variants={itemVariants} style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '8px' }}>Total Profit</p>
+                  <h3 style={{ color: 'var(--text-main)', fontSize: '24px', fontWeight: 'bold', margin: '0 0 8px 0' }}>{isPnLPositive ? '+' : ''}{formatCurrency(totalPnL)}</h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: isPnLPositive ? '#10b981' : '#ef4444', fontSize: '12px', fontWeight: '600' }}>
+                    {isPnLPositive ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />} 
+                    {Math.abs(roiPercentage)}%
+                  </div>
+                </div>
+                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'linear-gradient(135deg, #10b981, #059669)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <TrendingUp size={22} color="white" />
+                </div>
+              </motion.div>
+
+              <motion.div variants={itemVariants} style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '8px' }}>Active Investments</p>
+                  <h3 style={{ color: 'var(--text-main)', fontSize: '24px', fontWeight: 'bold', margin: '0' }}>{portfolio.length}</h3>
+                </div>
+                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'linear-gradient(135deg, #d946ef, #9333ea)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <PieChartIcon size={22} color="white" />
+                </div>
+              </motion.div>
+
+              <motion.div variants={itemVariants} style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '8px' }}>Total Trades</p>
+                  <h3 style={{ color: 'var(--text-main)', fontSize: '24px', fontWeight: 'bold', margin: '0' }}>{transactions.length}</h3>
+                </div>
+                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'linear-gradient(135deg, #f97316, #ea580c)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Activity size={22} color="white" />
+                </div>
+              </motion.div>
+            </motion.div>
+
+            <motion.div variants={itemVariants} style={{ display: 'flex', flexWrap: 'wrap', gap: '24px' }}>
+              <div style={{ flex: '2 1 500px', backgroundColor: 'var(--bg-card)', padding: '24px', borderRadius: '20px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column' }}>
+                <h3 style={{ fontSize: '18px', margin: '0 0 24px 0', color: 'var(--text-main)' }}>Balance History</h3>
+                <div style={{ width: '100%', height: '320px', position: 'relative' }}>
+                  <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
                     <LineChart data={balanceHistory}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color)" />
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color)" opacity={0.5} />
                       <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: 'var(--text-muted)', fontSize: 12 }} dy={10} minTickGap={30} />
                       <YAxis axisLine={false} tickLine={false} tick={{ fill: 'var(--text-muted)', fontSize: 12 }} dx={-10} tickFormatter={(value) => formatCurrency(value, 0)} />
                       <Tooltip 
-                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
+                        contentStyle={{ borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)' }}
+                        itemStyle={{ color: '#3b82f6', fontWeight: 'bold' }}
                         formatter={(value) => [formatCurrency(value), 'Balance']}
                       />
-                      <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4, fill: '#3b82f6', strokeWidth: 2, stroke: 'var(--bg-card)' }} activeDot={{ r: 6 }} />
+                      <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} dot={{ r: 0 }} activeDot={{ r: 6, fill: '#3b82f6', stroke: 'var(--bg-card)', strokeWidth: 3 }} isAnimationActive={true} animationDuration={1500} />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
               </div>
 
-              <div className="stat-card" style={{ minHeight: '350px', display: 'flex', flexDirection: 'column' }}>
-                <h3 style={{ fontSize: '16px', marginBottom: '24px', color: 'var(--text-main)' }}>Asset Allocation</h3>
+              <div style={{ flex: '1 1 300px', backgroundColor: 'var(--bg-card)', padding: '24px', borderRadius: '20px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column' }}>
+                <h3 style={{ fontSize: '18px', margin: '0 0 24px 0', color: 'var(--text-main)' }}>Asset Allocation</h3>
                 {portfolioPieData.length > 0 ? (
-                  <div style={{ flex: 1, width: '100%', minHeight: '250px' }}>
-                    <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                      <RechartsPieChart>
-                        <Pie
-                          data={portfolioPieData}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={60}
-                          outerRadius={90}
-                          paddingAngle={5}
-                          dataKey="value"
-                        >
-                          {portfolioPieData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip contentStyle={{ backgroundColor: 'var(--bg-card)', border: 'none', borderRadius: '8px' }} formatter={(value) => formatCurrency(value)} />
-                      </RechartsPieChart>
-                    </ResponsiveContainer>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'center', marginTop: '16px' }}>
+                  <div style={{ width: '100%', flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ width: '100%', height: '260px', position: 'relative' }}>
+                      <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
+                        <PieChart>
+                          <Pie
+                            data={portfolioPieData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={75}
+                            outerRadius={105}
+                            paddingAngle={5}
+                            cornerRadius={6}
+                            dataKey="value"
+                            stroke="none"
+                            isAnimationActive={true}
+                            animationDuration={1500}
+                          >
+                            {portfolioPieData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip 
+                            contentStyle={{ backgroundColor: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: '12px', color: 'var(--text-main)' }} 
+                            itemStyle={{ fontWeight: 'bold', color: 'var(--text-main)' }}
+                            formatter={(value) => formatCurrency(value)} 
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', justifyContent: 'center', marginTop: '24px' }}>
                       {portfolioPieData.map((entry, index) => (
-                        <div key={entry.name} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                          <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: COLORS[index % COLORS.length] }}></div>
+                        <div key={entry.name} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: 'var(--text-muted)', fontWeight: '600' }}>
+                          <div style={{ width: '12px', height: '12px', borderRadius: '4px', backgroundColor: COLORS[index % COLORS.length] }}></div>
                           {entry.name}
                         </div>
                       ))}
                     </div>
                   </div>
                 ) : (
-                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '14px', textAlign: 'center' }}>
-                    No assets in portfolio yet.<br/>Buy some assets to see your allocation.
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '14px', textAlign: 'center', backgroundColor: 'var(--bg-main)', borderRadius: '12px', padding: '20px' }}>
+                    No assets in portfolio yet.<br/><br/>Buy some assets to see your allocation.
                   </div>
                 )}
               </div>
+            </motion.div>
 
-              <div className="stat-card" style={{ gridColumn: '1 / -1', padding: '24px 32px', marginTop: '24px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+            <motion.div variants={itemVariants} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '24px' }}>
+              
+              <div style={{ backgroundColor: 'var(--bg-card)', padding: '24px', borderRadius: '20px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                   <h3 style={{ margin: 0, fontSize: '18px', color: 'var(--text-main)' }}>Watchlist</h3>
                 </div>
                 
                 {watchlist.length === 0 ? (
-                  <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px', border: '1px dashed var(--border-color)', borderRadius: '8px' }}>
+                  <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '15px', border: '1px dashed var(--border-color)', borderRadius: '16px' }}>
                     Your watchlist is empty. Go to Markets to add assets.
                   </div>
                 ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '16px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     {watchlist.map(item => {
                       const isPositive = item.asset.change24h >= 0;
                       return (
-                        <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
-                          <div>
-                            <div style={{ fontWeight: '600', color: 'var(--text-main)' }}>{item.asset.symbol} <span style={{ color: '#fbbf24' }}>★</span></div>
-                            <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{item.asset.name}</div>
+                        <div 
+                          key={item.id} 
+                          onClick={() => handleOpenChart(item.asset)} 
+                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', border: '1px solid var(--border-color)', borderRadius: '12px', backgroundColor: 'var(--bg-main)', cursor: 'pointer', transition: 'all 0.2s' }} 
+                          onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; }} 
+                          onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                              {item?.asset?.symbol ? item.asset.symbol.substring(0, 2) : '??'}
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: '700', color: 'var(--text-main)', fontSize: '15px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                {item.asset.symbol} <Star size={14} fill="#fbbf24" color="#fbbf24" />
+                              </div>
+                              <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '2px' }}>{item.asset.name}</div>
+                            </div>
                           </div>
                           <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontWeight: '600', color: 'var(--text-main)' }}>{formatCurrency(item.asset.currentPrice)}</div>
-                            <div style={{ fontSize: '13px', color: isPositive ? '#10b981' : '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '2px' }}>
+                            <div style={{ fontWeight: '700', color: 'var(--text-main)', fontSize: '15px' }}>{formatCurrency(item.asset.currentPrice)}</div>
+                            <div style={{ fontSize: '13px', color: isPositive ? '#10b981' : '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px', marginTop: '2px', fontWeight: '600' }}>
                               {isPositive ? <TrendingUp size={14}/> : <TrendingDown size={14}/>} {Math.abs(item.asset.change24h || 0).toFixed(2)}%
                             </div>
                           </div>
@@ -626,8 +1091,93 @@ function Dashboard() {
                 )}
               </div>
 
-            </div>
-          </div>
+              <div style={{ backgroundColor: 'var(--bg-card)', padding: '24px', borderRadius: '20px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                  <h3 style={{ margin: 0, fontSize: '18px', color: 'var(--text-main)' }}>Price Alerts</h3>
+                  <div style={{ padding: '6px', borderRadius: '8px', backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}>
+                    <Bell size={18} />
+                  </div>
+                </div>
+
+                {priceAlerts.length === 0 ? (
+                  <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '15px', border: '1px dashed var(--border-color)', borderRadius: '16px' }}>
+                    No active alerts. Add them from the Markets page.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {priceAlerts.map(alert => (
+                      <div key={alert.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', backgroundColor: 'var(--bg-main)', borderRadius: '12px', border: '1px solid var(--border-color)', transition: 'all 0.2s' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: alert.condition === 'ABOVE' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: alert.condition === 'ABOVE' ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>
+                            {alert?.symbol ? alert.symbol.substring(0, 2) : '??'}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: '700', color: 'var(--text-main)', fontSize: '15px' }}>{alert.symbol}</div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              Target: {alert.condition === 'ABOVE' ? '↑' : '↓'} {formatCurrency(alert.targetPrice)}
+                            </div>
+                          </div>
+                        </div>
+                        <button onClick={() => handleDeleteAlert(alert.id)} style={{ background: 'transparent', color: '#ef4444', border: 'none', cursor: 'pointer', padding: '8px', opacity: '0.8', display: 'flex', alignItems: 'center' }}>
+                          <X size={18} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ backgroundColor: 'var(--bg-card)', padding: '24px', borderRadius: '20px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                  <h3 style={{ margin: 0, fontSize: '18px', color: 'var(--text-main)' }}>Recent Transactions</h3>
+                  <button 
+                    onClick={() => setActiveView('transactions')}
+                    style={{ background: 'none', border: 'none', color: '#3b82f6', fontSize: '14px', fontWeight: '600', cursor: 'pointer' }}
+                  >
+                    View All
+                  </button>
+                </div>
+                
+                {transactions.length === 0 ? (
+                  <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '15px', border: '1px dashed var(--border-color)', borderRadius: '16px' }}>
+                    No recent transactions.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {transactions.slice(0, 5).map(tx => {
+                      const isBuy = tx.type === 'BUY';
+                      return (
+                        <div key={tx.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', border: '1px solid var(--border-color)', borderRadius: '12px', backgroundColor: 'var(--bg-main)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: isBuy ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isBuy ? '#10b981' : '#ef4444' }}>
+                              {isBuy ? <ArrowDownRight size={20} /> : <ArrowUpRight size={20} />}
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: '700', color: 'var(--text-main)', fontSize: '15px' }}>
+                                {isBuy ? 'Bought' : 'Sold'} {tx.asset.symbol}
+                              </div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                {new Date(tx.date).toLocaleDateString()}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontWeight: '700', color: isBuy ? '#ef4444' : '#10b981', fontSize: '15px' }}>
+                              {isBuy ? '-' : '+'}{formatCurrency(tx.quantity * tx.priceAtPurchase)}
+                            </div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              {tx.quantity} units
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+            </motion.div>
+          </motion.div>
         );
 
       case 'markets':
@@ -637,14 +1187,59 @@ function Dashboard() {
           return matchesSearch && matchesFilter;
         });
 
-        return (
-          <div className="markets-section">
-            <header className="header">
-              <h1>Markets</h1>
-              <p>Explore assets and expand your portfolio.</p>
-            </header>
+        const totalPages = Math.ceil(filteredAssets.length / assetsPerPage);
+        const indexOfLastAsset = marketPage * assetsPerPage;
+        const indexOfFirstAsset = indexOfLastAsset - assetsPerPage;
+        const currentAssets = filteredAssets.slice(indexOfFirstAsset, indexOfLastAsset);
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
+        const topMovers = [...assets]
+          .sort((a, b) => Math.abs(b.change24h || 0) - Math.abs(a.change24h || 0))
+          .slice(0, 5);
+
+        return (
+          <motion.div variants={containerVariants} initial="hidden" animate="show" className="markets-section">
+            <motion.header variants={itemVariants} className="header" style={{ marginBottom: '24px' }}>
+              <h1 style={{ fontSize: '28px', color: 'var(--text-main)', marginBottom: '8px' }}>Markets</h1>
+              <p style={{ color: 'var(--text-muted)', margin: 0 }}>Explore assets and expand your portfolio in real-time.</p>
+            </motion.header>
+
+            {topMovers.length > 0 && (
+              <motion.div variants={itemVariants} style={{ backgroundColor: 'var(--bg-card)', padding: '24px', borderRadius: '20px', border: '1px solid var(--border-color)', marginBottom: '32px' }}>
+                <h3 style={{ margin: '0 0 20px 0', fontSize: '18px', color: 'var(--text-main)' }}>Top Movers</h3>
+                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                  {topMovers.map(asset => {
+                    const isPositive = asset.change24h >= 0;
+                    return (
+                      <div 
+                        key={`top-${asset.id}`} 
+                        onClick={() => handleOpenChart(asset)}
+                        style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '10px', 
+                          padding: '10px 20px', 
+                          borderRadius: '12px', 
+                          backgroundColor: isPositive ? 'rgba(16, 185, 129, 0.05)' : 'rgba(239, 68, 68, 0.05)', 
+                          border: `1px solid ${isPositive ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
+                          cursor: 'pointer',
+                          transition: 'transform 0.2s',
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+                        onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                      >
+                        <span style={{ fontWeight: '700', color: 'var(--text-main)', fontSize: '15px' }}>{asset.symbol}</span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: isPositive ? '#10b981' : '#ef4444', fontWeight: '700', fontSize: '15px' }}>
+                          {isPositive ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
+                          {Math.abs(asset.change24h || 0).toFixed(1)}%
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            )}
+
+            <motion.div variants={itemVariants} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
               <div className="search-container" style={{ margin: 0, backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
                 <Search className="search-icon" size={20} color="var(--text-muted)" />
                 <input 
@@ -677,13 +1272,13 @@ function Dashboard() {
                   Stocks
                 </button>
               </div>
-            </div>
+            </motion.div>
 
-            <div className="assets-list-container" style={{ marginTop: 0 }}>
-              {filteredAssets.map(asset => {
+            <motion.div variants={itemVariants} className="assets-list-container" style={{ marginTop: 0 }}>
+              {currentAssets.map(asset => {
                 const isPositive = asset.change24h >= 0;
                 return (
-                  <div key={asset.id} className="asset-row-clean" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+                  <motion.div variants={itemVariants} key={asset.id} className="asset-row-clean" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
                     <div 
                       className="asset-info-main" 
                       onClick={() => handleOpenChart(asset)}
@@ -694,58 +1289,72 @@ function Dashboard() {
                       <span className="asset-type-badge">{asset.type}</span>
                     </div>
                     
-                    <div className="asset-price-section">
-                      <div className="price-wrapper" style={{ marginRight: '16px' }}>
-                        <span className="current-price" style={{ color: 'var(--text-main)' }}>{formatCurrency(asset.currentPrice)}</span>
-                        <span className={`price-change ${isPositive ? 'positive' : 'negative'}`}>
-                          {isPositive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                          {Math.abs(asset.change24h || 0).toFixed(2)}%
-                        </span>
-                      </div>
-                      <button 
-                        onClick={() => handleOpenChart(asset)}
-                        style={{ background: 'var(--bg-hover)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '6px 12px', cursor: 'pointer', marginRight: '12px', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-main)', fontWeight: '600' }}
-                      >
-                        <Activity size={16} /> Chart
-                      </button>
-                      <button 
-                        onClick={() => handleToggleWatchlist(asset.id)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', marginRight: '12px', display: 'flex', alignItems: 'center' }}
-                      >
-                        <Star size={22} fill={watchlist.some(w => w.assetId === asset.id) ? "#fbbf24" : "none"} color={watchlist.some(w => w.assetId === asset.id) ? "#fbbf24" : "var(--border-color)"} />
-                      </button>
-                      <button 
-                        className="trade-btn-outline"
-                        onClick={() => {
-                          setSelectedAsset(asset);
-                          setIsBuyModalOpen(true);
-                        }}
-                      >
-                        Trade
-                      </button>
-                    </div>
-                  </div>
+                    <div className="asset-price-section" style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+  <div className="price-wrapper" style={{ textAlign: 'right' }}>
+    <div style={{ color: 'var(--text-main)', fontSize: '16px', fontWeight: '800' }}>{formatCurrency(asset.currentPrice)}</div>
+    <div className={`price-change ${isPositive ? 'positive' : 'negative'}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px', fontSize: '13px', fontWeight: '600' }}>
+      {isPositive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+      {Math.abs(asset.change24h || 0).toFixed(2)}%
+    </div>
+  </div>
+  
+  <motion.button 
+    whileHover={{ scale: 1.05 }}
+    whileTap={{ scale: 0.95 }}
+    onClick={() => handleOpenChart(asset)}
+    style={{ 
+      background: 'linear-gradient(135deg, #3b82f6, #2563eb)', 
+      border: 'none', 
+      borderRadius: '10px', 
+      padding: '10px 24px', 
+      color: 'white', 
+      fontWeight: '700', 
+      cursor: 'pointer',
+      boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
+    }}
+  >
+    Trade
+  </motion.button>
+</div>
+                  </motion.div>
                 );
               })}
-            </div>
-          </div>
+            </motion.div>
+
+            {totalPages > 1 && (
+              <motion.div variants={itemVariants} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '16px', marginTop: '32px', paddingBottom: '16px' }}>
+                <button 
+                  onClick={() => setMarketPage(prev => Math.max(1, prev - 1))}
+                  disabled={marketPage === 1}
+                  style={{ padding: '8px 20px', borderRadius: '8px', border: '1px solid var(--border-color)', background: marketPage === 1 ? 'transparent' : 'var(--bg-card)', color: marketPage === 1 ? 'var(--text-muted)' : 'var(--text-main)', cursor: marketPage === 1 ? 'not-allowed' : 'pointer', fontWeight: '600', opacity: marketPage === 1 ? 0.5 : 1, transition: 'all 0.2s ease' }}
+                >
+                  Previous
+                </button>
+                <span style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: '600' }}>
+                  Page {marketPage} of {totalPages}
+                </span>
+                <button 
+                  onClick={() => setMarketPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={marketPage === totalPages}
+                  style={{ padding: '8px 20px', borderRadius: '8px', border: '1px solid var(--border-color)', background: marketPage === totalPages ? 'transparent' : 'var(--bg-card)', color: marketPage === totalPages ? 'var(--text-muted)' : 'var(--text-main)', cursor: marketPage === totalPages ? 'not-allowed' : 'pointer', fontWeight: '600', opacity: marketPage === totalPages ? 0.5 : 1, transition: 'all 0.2s ease' }}
+                >
+                  Next
+                </button>
+              </motion.div>
+            )}
+          </motion.div>
         );
 
       case 'portfolio':
-        const totalPortfolioValue = portfolio.reduce((sum, item) => sum + item.currentValue, 0);
-        const totalInvested = portfolio.reduce((sum, item) => sum + (item.quantity * item.avgBuyPrice), 0);
-        const totalPnL = totalPortfolioValue - totalInvested;
-        const isPnLPositive = totalPnL >= 0;
-
         return (
-          <div className="portfolio-section">
-            <header className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+          <motion.div variants={containerVariants} initial="hidden" animate="show" className="portfolio-section" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <motion.header variants={itemVariants} className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '8px' }}>
               <div>
-                <h1>My Assets</h1>
-                <p>Track your assets and overall performance.</p>
+                <h1 style={{ fontSize: '28px', color: 'var(--text-main)', marginBottom: '8px' }}>My Portfolio</h1>
+                <p style={{ color: 'var(--text-muted)', margin: 0 }}>Track your assets, investments and overall performance.</p>
               </div>
               
-              <div style={{ display: 'flex', background: 'var(--bg-main)', borderRadius: '10px', padding: '4px', border: '1px solid var(--border-color)', flexShrink: 0 }}>
+              <div style={{ display: 'flex', background: 'var(--bg-main)', borderRadius: '12px', padding: '4px', border: '1px solid var(--border-color)', flexShrink: 0 }}>
                 {['USD', 'EUR', 'RON'].map(curr => (
                   <button
                     key={curr}
@@ -758,7 +1367,7 @@ function Dashboard() {
                       borderRadius: '8px',
                       fontWeight: '600',
                       cursor: 'pointer',
-                      boxShadow: user?.currency === curr ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                      boxShadow: user?.currency === curr ? '0 2px 4px rgba(0,0,0,0.1)' : 'none',
                       transition: 'all 0.2s ease',
                       fontSize: '14px'
                     }}
@@ -767,27 +1376,109 @@ function Dashboard() {
                   </button>
                 ))}
               </div>
-            </header>
+            </motion.header>
 
-            <div className="portfolio-summary-cards" style={{ display: 'flex', gap: '40px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', padding: '32px', borderRadius: '16px', marginBottom: '24px', flexWrap: 'wrap' }}>
-              <div className="summary-box" style={{ border: 'none', padding: 0, flex: 1, minWidth: '250px' }}>
-                <span className="summary-label" style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>Total Portfolio Value</span>
-                <span className="summary-value" style={{ color: 'var(--text-main)', fontSize: '32px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+            <motion.div variants={itemVariants} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' }}>
+              <motion.div variants={itemVariants} style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', display: 'flex', flexDirection: 'column' }}>
+                <span style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '12px' }}>Total Value</span>
+                <span style={{ color: 'var(--text-main)', fontSize: '28px', fontWeight: 'bold', margin: 0, letterSpacing: '-0.5px' }}>
                   {formatCurrency(totalPortfolioValue)}
                 </span>
-              </div>
-              
-              <div className="summary-divider" style={{ width: '1px', backgroundColor: 'var(--border-color)' }}></div>
-              
-              <div className="summary-box" style={{ border: 'none', padding: 0, flex: 1, minWidth: '250px' }}>
-                <span className="summary-label" style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>Total P&L</span>
-                <span className={`summary-value ${isPnLPositive ? 'text-green' : 'text-red'}`} style={{ fontSize: '32px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+              </motion.div>
+
+              <motion.div variants={itemVariants} style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', display: 'flex', flexDirection: 'column' }}>
+                <span style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '12px' }}>Initial Investment</span>
+                <span style={{ color: 'var(--text-main)', fontSize: '28px', fontWeight: 'bold', margin: 0, letterSpacing: '-0.5px' }}>
+                  {formatCurrency(totalInvested)}
+                </span>
+              </motion.div>
+
+              <motion.div variants={itemVariants} style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', display: 'flex', flexDirection: 'column' }}>
+                <span style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '12px' }}>Profit/Loss</span>
+                <span style={{ color: isPnLPositive ? '#10b981' : '#ef4444', fontSize: '28px', fontWeight: 'bold', margin: 0, letterSpacing: '-0.5px' }}>
                   {isPnLPositive ? '+' : ''}{formatCurrency(totalPnL)}
                 </span>
-              </div>
-            </div>
+              </motion.div>
 
-            <div className="table-container" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+              <motion.div variants={itemVariants} style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', display: 'flex', flexDirection: 'column' }}>
+                <span style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '12px' }}>ROI Yield</span>
+                <span style={{ color: 'var(--text-main)', fontSize: '28px', fontWeight: 'bold', marginBottom: '16px', letterSpacing: '-0.5px' }}>
+                  {isPnLPositive ? '+' : ''}{roiPercentage}%
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: isPnLPositive ? '#10b981' : '#ef4444', fontSize: '13px', fontWeight: '600' }}>
+                  {isPnLPositive ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />} 
+                  Return on Investment
+                </div>
+              </motion.div>
+            </motion.div>
+
+            <motion.div variants={itemVariants} style={{ backgroundColor: 'var(--bg-card)', padding: '24px', borderRadius: '20px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', marginTop: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h3 style={{ margin: 0, fontSize: '18px', color: 'var(--text-main)' }}>Pending Auto Orders</h3>
+                <div style={{ padding: '6px', borderRadius: '8px', backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}>
+                  <Clock size={18} />
+                </div>
+              </div>
+              
+              {autoOrders.length === 0 ? (
+                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', border: '1px dashed var(--border-color)', borderRadius: '12px', fontSize: '14px' }}>
+                  No pending auto orders. Set a Limit Order when buying or selling.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {autoOrders.map(order => (
+                    <div key={order.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', backgroundColor: 'var(--bg-main)', borderRadius: '12px', border: '1px solid var(--border-color)', transition: 'all 0.2s' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                        <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: order.type === 'BUY' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: order.type === 'BUY' ? '#10b981' : '#ef4444', fontWeight: 'bold', fontSize: '12px' }}>
+                          {order.type}
+                        </div>
+                        <div>
+                          <p style={{ margin: 0, fontWeight: 'bold', color: 'var(--text-main)' }}>{order.quantity} {order.symbol}</p>
+                          <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                            Target: {formatCurrency(order.targetPrice)}
+                          </p>
+                        </div>
+                      </div>
+                      <button onClick={() => handleCancelAutoOrder(order.id)} style={{ background: 'transparent', color: '#ef4444', border: 'none', cursor: 'pointer', padding: '8px' }}>
+                        <X size={18} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+
+            <motion.div variants={itemVariants} style={{ backgroundColor: 'var(--bg-card)', padding: '24px', borderRadius: '20px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column' }}>
+              <h3 style={{ fontSize: '20px', margin: '0 0 24px 0', color: 'var(--text-main)' }}>Performance vs Market</h3>
+              <div style={{ width: '100%', height: '320px', position: 'relative' }}>
+                <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
+                  <LineChart data={balanceHistory}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={true} horizontal={true} stroke="var(--border-color)" opacity={0.4} />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: 'var(--text-muted)', fontSize: 12 }} dy={10} minTickGap={30} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fill: 'var(--text-muted)', fontSize: 12 }} dx={-10} tickFormatter={(value) => formatCurrency(value, 0)} />
+                    <Tooltip 
+                      contentStyle={{ borderRadius: '12px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)' }}
+                      formatter={(value, name) => [formatCurrency(value), name === 'value' ? 'Your Portfolio' : 'Market Benchmark']}
+                    />
+                    <Line type="monotone" dataKey={(d) => d.value * 0.95} stroke="#64748b" strokeWidth={2} dot={false} isAnimationActive={true} animationDuration={1500} />
+                    <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4, fill: '#3b82f6', stroke: 'var(--bg-card)', strokeWidth: 2 }} activeDot={{ r: 6 }} isAnimationActive={true} animationDuration={1500} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+              
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '32px', marginTop: '20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: 'var(--text-main)', fontWeight: '500' }}>
+                  <div style={{ width: '12px', height: '12px', borderRadius: '50%', border: '2px solid #3b82f6', backgroundColor: 'transparent' }}></div>
+                  Your Portfolio
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: 'var(--text-muted)' }}>
+                  <div style={{ width: '12px', height: '2px', backgroundColor: '#64748b' }}></div>
+                  Market
+                </div>
+              </div>
+            </motion.div>
+
+            <motion.div variants={itemVariants} className="table-container" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
               <table className="portfolio-table">
                 <thead>
                   <tr>
@@ -812,10 +1503,10 @@ function Dashboard() {
                     portfolio.map(item => {
                       const isPositive = item.profitLoss >= 0;
                       return (
-                        <tr key={item.id}>
+                        <motion.tr variants={itemVariants} key={item.id}>
                           <td>
                             <div className="table-asset-name" onClick={() => handleOpenChart(item.asset)} style={{ cursor: 'pointer', color: 'var(--text-main)' }}>
-                              <span className="table-icon">{item.asset.symbol.charAt(0)}</span>
+                              <span className="table-icon">{item?.asset?.symbol ? item.asset.symbol.substring(0, 2) : '??'}</span>
                               {item.asset.name}
                             </div>
                           </td>
@@ -835,28 +1526,30 @@ function Dashboard() {
                               onClick={() => {
                                 setSelectedSellAsset(item);
                                 setIsSellModalOpen(true);
+                                setOrderType('MARKET');
+                                setLimitPrice('');
                               }}
                             >
                               Sell
                             </button>
                           </td>
-                        </tr>
+                        </motion.tr>
                       );
                     })
                   )}
                 </tbody>
               </table>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         );
 
       case 'transactions':
         return (
-          <div className="transactions-section">
-            <header className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <motion.div variants={containerVariants} initial="hidden" animate="show" className="transactions-section">
+            <motion.header variants={itemVariants} className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
-                <h1>Transaction History</h1>
-                <p>View all your past trades and operations.</p>
+                <h1 style={{ color: 'var(--text-main)' }}>Transaction History</h1>
+                <p style={{ color: 'var(--text-muted)' }}>View all your past trades and operations.</p>
               </div>
               <button 
                 onClick={exportTransactionsPDF}
@@ -877,9 +1570,9 @@ function Dashboard() {
                 <Download size={18} />
                 Export PDF
               </button>
-            </header>
+            </motion.header>
 
-            <div className="table-container" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+            <motion.div variants={itemVariants} className="table-container" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
               <table className="portfolio-table">
                 <thead>
                   <tr>
@@ -902,11 +1595,11 @@ function Dashboard() {
                     transactions.map(tx => {
                       const isBuy = tx.type === 'BUY';
                       return (
-                        <tr key={tx.id}>
+                        <motion.tr variants={itemVariants} key={tx.id}>
                           <td>{new Date(tx.date).toLocaleString()}</td>
                           <td>
                             <div className="table-asset-name" style={{ color: 'var(--text-main)' }}>
-                              <span className="table-icon">{tx.asset.symbol.charAt(0)}</span>
+                              <span className="table-icon">{tx?.asset?.symbol ? tx.asset.symbol.substring(0, 2) : '??'}</span>
                               {tx.asset.name} <span className="badge">{tx.asset.symbol}</span>
                             </div>
                           </td>
@@ -926,24 +1619,17 @@ function Dashboard() {
                           <td style={{ fontWeight: '600', color: isBuy ? '#ef4444' : '#10b981' }}>
                             {isBuy ? '-' : '+'}{formatCurrency(tx.quantity * tx.priceAtPurchase)}
                           </td>
-                        </tr>
+                        </motion.tr>
                       );
                     })
                   )}
                 </tbody>
               </table>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         );
 
       case 'news':
-        const filteredNews = newsDateFilter 
-          ? news.filter(item => {
-              const itemDate = new Date(item.pubDate).toISOString().split('T')[0];
-              return itemDate === newsDateFilter;
-            })
-          : news;
-
         const getImageUrl = (item) => {
           if (item.thumbnail) return item.thumbnail;
           if (item.enclosure && item.enclosure.link) return item.enclosure.link;
@@ -951,8 +1637,8 @@ function Dashboard() {
         };
 
         return (
-          <div className="news-section">
-            <header className="header" style={{ marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '16px' }}>
+          <motion.div variants={containerVariants} initial="hidden" animate="show" className="news-section">
+            <motion.header variants={itemVariants} className="header" style={{ marginBottom: '32px' }}>
               <div>
                 <h1 style={{ fontSize: '32px', fontWeight: '800', background: 'linear-gradient(90deg, var(--text-main), #3b82f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', margin: '0 0 8px 0' }}>
                   Market Intelligence
@@ -961,59 +1647,40 @@ function Dashboard() {
                   Curated financial news, analysis, and breaking updates.
                 </p>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--bg-card)', padding: '8px 16px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                <Calendar size={18} color="var(--text-muted)" />
-                <input 
-                  type="date" 
-                  value={newsDateFilter}
-                  onChange={(e) => setNewsDateFilter(e.target.value)}
-                  style={{ border: 'none', outline: 'none', color: 'var(--text-main)', fontWeight: '500', fontSize: '14px', background: 'transparent' }}
-                  className="theme-date-input"
-                />
-                {newsDateFilter && (
-                  <button 
-                    onClick={() => setNewsDateFilter('')}
-                    style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '12px', fontWeight: '600', cursor: 'pointer', marginLeft: '8px' }}
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-            </header>
+            </motion.header>
 
             {isNewsLoading ? (
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
+              <motion.div variants={itemVariants} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
                 <div style={{ width: '40px', height: '40px', border: '4px solid var(--border-color)', borderTop: '4px solid #3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-              </div>
-            ) : filteredNews.length > 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+              </motion.div>
+            ) : news.length > 0 ? (
+              <motion.div variants={itemVariants} style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
                 
-                {!newsDateFilter && (
-                  <a href={filteredNews[0].link} target="_blank" rel="noreferrer" style={{ display: 'block', position: 'relative', height: '400px', borderRadius: '24px', overflow: 'hidden', textDecoration: 'none', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)' }}>
-                    <img src={getImageUrl(filteredNews[0])} alt="Featured" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(15, 23, 42, 0.95) 0%, rgba(15, 23, 42, 0.4) 50%, transparent 100%)' }} />
-                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '40px' }}>
-                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '16px' }}>
-                        <span style={{ backgroundColor: '#3b82f6', color: 'white', padding: '6px 14px', borderRadius: '20px', fontSize: '12px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                          Top Story
-                        </span>
-                        <span style={{ color: '#cbd5e1', fontSize: '14px', fontWeight: '500' }}>
-                          {new Date(filteredNews[0].pubDate).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                        </span>
-                      </div>
-                      <h2 style={{ color: 'white', fontSize: '36px', fontWeight: '800', margin: '0 0 16px 0', lineHeight: '1.2', maxWidth: '800px' }}>
-                        {filteredNews[0].title}
-                      </h2>
-                      <p style={{ color: '#94a3b8', fontSize: '16px', margin: 0, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', maxWidth: '800px' }}>
-                        Click to read the full analysis and market impact on Yahoo Finance.
-                      </p>
+                <motion.a variants={itemVariants} href={news[0].link} target="_blank" rel="noreferrer" style={{ display: 'block', position: 'relative', height: '400px', borderRadius: '24px', overflow: 'hidden', textDecoration: 'none', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)' }}>
+                  <img src={getImageUrl(news[0])} alt="Featured" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(15, 23, 42, 0.95) 0%, rgba(15, 23, 42, 0.4) 50%, transparent 100%)' }} />
+                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '40px' }}>
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '16px' }}>
+                      <span style={{ backgroundColor: '#3b82f6', color: 'white', padding: '6px 14px', borderRadius: '20px', fontSize: '12px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Top Story
+                      </span>
+                      <span style={{ color: '#cbd5e1', fontSize: '14px', fontWeight: '500' }}>
+                        {new Date(news[0].pubDate).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                      </span>
                     </div>
-                  </a>
-                )}
+                    <h2 style={{ color: 'white', fontSize: '36px', fontWeight: '800', margin: '0 0 16px 0', lineHeight: '1.2', maxWidth: '800px' }}>
+                      {news[0].title}
+                    </h2>
+                    <p style={{ color: '#94a3b8', fontSize: '16px', margin: 0, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', maxWidth: '800px' }}>
+                      Click to read the full analysis and market impact.
+                    </p>
+                  </div>
+                </motion.a>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '24px' }}>
-                  {filteredNews.slice(newsDateFilter ? 0 : 1).map((item, index) => (
-                    <a 
+                <motion.div variants={itemVariants} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '24px' }}>
+                  {news.slice(1).map((item, index) => (
+                    <motion.a 
+                      variants={itemVariants}
                       key={index} 
                       href={item.link} 
                       target="_blank" 
@@ -1033,37 +1700,37 @@ function Dashboard() {
                           {item.title}
                         </h3>
                         <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-                          <span style={{ fontSize: '13px', fontWeight: '700', color: '#3b82f6' }}>Yahoo Finance</span>
+                          <span style={{ fontSize: '13px', fontWeight: '700', color: '#3b82f6' }}>Market News</span>
                           <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: '600' }}>
                             {new Date(item.pubDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                           </span>
                         </div>
                       </div>
-                    </a>
+                    </motion.a>
                   ))}
-                </div>
-              </div>
+                </motion.div>
+              </motion.div>
             ) : (
-              <div style={{ padding: '60px 40px', color: 'var(--text-muted)', textAlign: 'center', backgroundColor: 'var(--bg-card)', borderRadius: '24px', border: '1px dashed var(--border-color)' }}>
+              <motion.div variants={itemVariants} style={{ padding: '60px 40px', color: 'var(--text-muted)', textAlign: 'center', backgroundColor: 'var(--bg-card)', borderRadius: '24px', border: '1px dashed var(--border-color)' }}>
                 <Newspaper size={64} style={{ margin: '0 auto 24px auto', opacity: 0.3, color: '#3b82f6' }} />
-                <h3 style={{ margin: '0 0 8px 0', color: 'var(--text-main)', fontSize: '20px' }}>No news available for this date</h3>
-                <p style={{ margin: 0, fontSize: '16px' }}>Try clearing the filter or selecting a more recent date.</p>
-              </div>
+                <h3 style={{ margin: '0 0 8px 0', color: 'var(--text-main)', fontSize: '20px' }}>No news available</h3>
+                <p style={{ margin: 0, fontSize: '16px' }}>Check back later for updates.</p>
+              </motion.div>
             )}
-          </div>
+          </motion.div>
         );
 
       case 'settings':
         return (
-          <div className="settings-section">
-            <header className="header">
-              <h1>Settings</h1>
-              <p>Manage your account security and preferences.</p>
-            </header>
+          <motion.div variants={containerVariants} initial="hidden" animate="show" className="settings-section">
+            <motion.header variants={itemVariants} className="header">
+              <h1 style={{ color: 'var(--text-main)' }}>Settings</h1>
+              <p style={{ color: 'var(--text-muted)' }}>Manage your account security and preferences.</p>
+            </motion.header>
 
-            <div className="dashboard-grid" style={{ gridTemplateColumns: '1fr', gap: '24px' }}>
+            <motion.div variants={itemVariants} className="dashboard-grid" style={{ gridTemplateColumns: '1fr', gap: '24px' }}>
               
-              <div className="stat-card" style={{ maxWidth: '600px' }}>
+              <motion.div variants={itemVariants} className="stat-card" style={{ maxWidth: '600px' }}>
                 <h3 style={{ color: 'var(--text-main)', fontSize: '18px', marginBottom: '24px' }}>Profile Preferences</h3>
                 <form className="auth-form" style={{ padding: 0, backgroundColor: 'transparent', boxShadow: 'none' }} onSubmit={async (e) => {
                   e.preventDefault();
@@ -1076,9 +1743,9 @@ function Dashboard() {
                     });
                     localStorage.setItem('user', JSON.stringify(response.data.user));
                     setUser(response.data.user);
-                    alert('Profile preferences updated!');
+                    toast.success('Profile preferences updated!');
                   } catch (err) {
-                    alert('Failed to update profile');
+                    toast.error('Failed to update profile');
                   }
                 }}>
                   
@@ -1103,7 +1770,7 @@ function Dashboard() {
                         onChange={(e) => {
                           const file = e.target.files[0];
                           if (file) {
-                            if (file.size > 5000000) return alert('File is too large. Maximum size is 5MB.');
+                            if (file.size > 5000000) return toast.error('File is too large. Maximum size is 5MB.');
                             const reader = new FileReader();
                             reader.onloadend = () => setUser({...user, profilePicture: reader.result});
                             reader.readAsDataURL(file);
@@ -1130,9 +1797,9 @@ function Dashboard() {
                     Save Preferences
                   </button>
                 </form>
-              </div>
+              </motion.div>
 
-              <div className="stat-card" style={{ maxWidth: '600px' }}>
+              <motion.div variants={itemVariants} className="stat-card" style={{ maxWidth: '600px' }}>
                 <h3 style={{ color: 'var(--text-main)', fontSize: '18px', marginBottom: '20px' }}>Change Password</h3>
                 <form className="auth-form" style={{ padding: 0, backgroundColor: 'transparent', boxShadow: 'none' }} onSubmit={async (e) => {
                   e.preventDefault();
@@ -1140,8 +1807,8 @@ function Dashboard() {
                   const newPassword = e.target.newPassword.value;
                   const confirmPassword = e.target.confirmPassword.value;
                   
-                  if (newPassword !== confirmPassword) return alert('New passwords do not match');
-                  if (newPassword.length < 6) return alert('Password must be at least 6 characters');
+                  if (newPassword !== confirmPassword) return toast.error('New passwords do not match');
+                  if (newPassword.length < 6) return toast.error('Password must be at least 6 characters');
 
                   try {
                     await axios.put('http://localhost:3000/api/auth/change-password', {
@@ -1149,10 +1816,10 @@ function Dashboard() {
                       currentPassword,
                       newPassword
                     });
-                    alert('Password updated successfully!');
+                    toast.success('Password updated successfully!');
                     e.target.reset();
                   } catch (err) {
-                    alert(err.response?.data?.message || 'Error updating password');
+                    toast.error(err.response?.data?.message || 'Error updating password');
                   }
                 }}>
                   <div className="form-group">
@@ -1169,34 +1836,94 @@ function Dashboard() {
                   </div>
                   <button type="submit" className="submit-btn" style={{ marginTop: '10px' }}>Update Password</button>
                 </form>
-              </div>
+              </motion.div>
 
-              <div className="stat-card" style={{ maxWidth: '600px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+              <motion.div variants={itemVariants} className="stat-card" style={{ maxWidth: '600px', border: '1px solid var(--border-color)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                  <div>
+                    <h3 style={{ color: 'var(--text-main)', fontSize: '18px', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <Sparkles size={20} style={{ color: '#fbbf24' }} />
+                      Dark Mode
+                    </h3>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: '4px 0 0 0' }}>Enable dark premium theme with enhanced UI design.</p>
+                  </div>
+                  <div 
+                    onClick={toggleTheme}
+                    style={{ 
+                      width: '60px', 
+                      height: '32px', 
+                      borderRadius: '16px', 
+                      background: isPremium ? '#2ebd85' : '#64748b',
+                      cursor: 'pointer',
+                      position: 'relative',
+                      padding: '2px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      transition: 'background 0.3s'
+                    }}
+                  >
+                    <div 
+                      style={{
+                        width: '28px',
+                        height: '28px',
+                        borderRadius: '50%',
+                        background: 'white',
+                        position: 'absolute',
+                        left: isPremium ? '30px' : '2px',
+                        transition: 'left 0.3s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+                      }}
+                    >
+                      {isPremium ? <Sparkles size={16} style={{ color: '#2ebd85' }} /> : <Sun size={16} style={{ color: '#64748b' }} />}
+                    </div>
+                  </div>
+                </div>
+                {isPremium && (
+                  <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: 0, fontStyle: 'italic' }}>
+                    ✨ Dark mode is now active! Enjoy the enhanced interface.
+                  </p>
+                )}
+              </motion.div>
+
+              <motion.div variants={itemVariants} className="stat-card" style={{ maxWidth: '600px', border: '1px solid var(--border-color)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                  <div>
+                    <h3 style={{ color: 'var(--text-main)', fontSize: '18px', margin: 0 }}>Two-Factor Authentication</h3>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: '4px 0 0 0' }}>Add an extra layer of security to your account.</p>
+                  </div>
+                  <div style={{ padding: '6px 12px', borderRadius: '8px', backgroundColor: user?.isTwoFactorEnabled ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', color: user?.isTwoFactorEnabled ? '#10b981' : '#ef4444', fontWeight: 'bold', fontSize: '12px' }}>
+                    {user?.isTwoFactorEnabled ? 'ENABLED' : 'DISABLED'}
+                  </div>
+                </div>
+                {user?.isTwoFactorEnabled ? (
+                  <button onClick={handleDisable2FA} style={{ background: 'transparent', color: '#ef4444', border: '1px solid #ef4444', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', width: '100%' }}>
+                    Disable 2FA
+                  </button>
+                ) : (
+                  <button onClick={handleGenerate2FA} style={{ background: '#3b82f6', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', width: '100%' }}>
+                    Setup 2FA
+                  </button>
+                )}
+              </motion.div>
+
+              <motion.div variants={itemVariants} className="stat-card" style={{ maxWidth: '600px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
                 <h3 style={{ color: '#ef4444', fontSize: '18px', marginBottom: '10px' }}>Danger Zone</h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '20px' }}>
                   Once you delete your account, there is no going back. Please be certain.
                 </p>
                 <button 
-                  onClick={async () => {
-                    if (window.confirm('Are you absolutely sure you want to delete your account? This action cannot be undone.')) {
-                      try {
-                        await axios.delete(`http://localhost:3000/api/auth/delete-account/${user.id}`);
-                        localStorage.removeItem('token');
-                        localStorage.removeItem('user');
-                        navigate('/');
-                      } catch (err) {
-                        alert('Error deleting account');
-                      }
-                    }
-                  }}
+                  onClick={() => setIsDeleteModalOpen(true)}
                   style={{ background: '#ef4444', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}
                 >
                   Delete Account
                 </button>
-              </div>
+              </motion.div>
 
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         );
 
       default:
@@ -1207,13 +1934,25 @@ function Dashboard() {
   if (!user) return <div>Loading...</div>;
 
   return (
-    <div className="dashboard-container">
-      <aside className="sidebar">
+    <div 
+      className="dashboard-container"
+      style={isPremium ? {
+        background: '#0b0e14',
+        colorScheme: 'dark'
+      } : {}}
+    >
+      <aside 
+        className="sidebar"
+        style={isPremium ? {
+          background: '#0b0e14',
+          borderRight: '1px solid #1a1d27'
+        } : {}}
+      >
         <div className="sidebar-logo">
           <div className="sidebar-logo-icon">
-            <TrendingUp size={20} color="white" />
+            <TrendingUp size={20} color={isPremium ? '#2ebd85' : 'white'} />
           </div>
-          <span>InvestPro</span>
+          <span style={isPremium ? { color: '#f0f3f7' } : {}}>InvestPro</span>
         </div>
         
         <nav className="sidebar-menu">
@@ -1253,15 +1992,6 @@ function Dashboard() {
           >
             <Settings size={20} /> Settings
           </div>
-
-          <div 
-            className="menu-item"
-            style={{ marginTop: 'auto', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '16px' }}
-            onClick={() => setIsDarkMode(!isDarkMode)}
-          >
-            {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
-            {isDarkMode ? 'Light Mode' : 'Dark Mode'}
-          </div>
         </nav>
 
         <div className="sidebar-user" onClick={handleLogout} title="Click to logout">
@@ -1273,17 +2003,75 @@ function Dashboard() {
             )}
           </div>
           <div className="user-info">
-            <div style={{ fontWeight: '600', fontSize: '14px', color: '#f8fafc' }}>{user.name}</div>
-            <div style={{ fontSize: '12px', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '140px' }}>
+            <div style={{ fontWeight: '600', fontSize: '14px', color: '#190b51' }}>{user.name}</div>
+            <div style={{ fontSize: '12px', color: '#190b51', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '140px' }}>
               {user.email}
             </div>
           </div>
         </div>
       </aside>
 
-      <main className="main-content">
-        {renderContent()}
+      <main className="main-content" style={isPremium ? {
+        background: '#0b0e14',
+        color: '#f0f3f7'
+      } : {}}>
+        <motion.div
+          key={activeView}
+          variants={containerVariants}
+          initial="hidden"
+          animate="show"
+          style={{ width: '100%', height: '100%' }}
+        >
+          {renderContent()}
+        </motion.div>
       </main>
+
+      {isDeleteModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal-card" style={{ border: '1px solid #ef4444', maxWidth: '400px' }}>
+            <h2 style={{ color: '#ef4444', marginBottom: '8px' }}>Delete Account</h2>
+            <p style={{ color: 'var(--text-muted)', marginBottom: '24px', fontSize: '14px' }}>
+              This action cannot be undone. All your data, portfolio, and history will be permanently erased.
+            </p>
+            
+            <div className="form-group">
+              <label style={{ color: 'var(--text-muted)' }}>Password </label>
+              <input 
+                type="password" 
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                placeholder="Enter your password"
+                style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)' }}
+              />
+            </div>
+
+            {user?.isTwoFactorEnabled && (
+              <div className="form-group" style={{ marginTop: '16px' }}>
+                <label style={{ color: 'var(--text-muted)' }}>2FA Authentication Code</label>
+                <input 
+                  type="text" 
+                  maxLength="6"
+                  value={deleteTwoFactorCode}
+                  onChange={(e) => setDeleteTwoFactorCode(e.target.value.replace(/\D/g, ''))}
+                  placeholder="000000"
+                  style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', letterSpacing: '4px', textAlign: 'center', fontSize: '18px', fontWeight: 'bold' }}
+                />
+              </div>
+            )}
+
+            <div className="modal-buttons" style={{ marginTop: '24px' }}>
+              <button className="cancel-btn" onClick={() => { setIsDeleteModalOpen(false); setDeletePassword(''); setDeleteTwoFactorCode(''); }}>Cancel</button>
+              <button 
+                className="confirm-btn" 
+                style={{ background: '#ef4444' }}
+                onClick={handleDeleteAccount}
+              >
+                Permanently Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isDepositModalOpen && (
         <div className="modal-overlay">
@@ -1379,75 +2167,234 @@ function Dashboard() {
       )}
       
       {isChartModalOpen && selectedChartAsset && (
-        <div className="modal-overlay">
-          <div className="modal-card" style={{ maxWidth: '800px', width: '90%' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <h2 style={{ margin: 0 }}>{selectedChartAsset.name}</h2>
-                <span className="badge" style={{ fontSize: '14px' }}>{selectedChartAsset.symbol}</span>
-              </div>
-              <button 
-                style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: 'var(--text-muted)' }} 
-                onClick={() => setIsChartModalOpen(false)}
+  <div className="fixed inset-0 z-[9999] flex flex-col bg-[#0B0E11] text-slate-200 font-sans dark overflow-hidden">
+    <header className="flex h-[60px] items-center justify-between border-b border-slate-800 bg-[#11141C] px-4 shrink-0">
+      <div className="flex items-center gap-6">
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-white font-bold text-xs">
+            {selectedChartAsset.symbol.substring(0, 2)}
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-white leading-none tracking-wide flex items-center gap-2">
+              {selectedChartAsset.symbol}
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="h-6 w-6 rounded-full hover:bg-slate-800"
+                onClick={() => handleToggleWatchlist(selectedChartAsset.id)}
               >
-                &times;
-              </button>
-            </div>
+                <Star size={14} className={watchlist.some(w => w.assetId === selectedChartAsset.id) ? "fill-yellow-500 text-yellow-500" : "text-slate-400"} />
+              </Button>
+            </h1>
+            <span className="text-xs text-slate-400">{selectedChartAsset.name}</span>
+          </div>
+        </div>
 
-            <div className="modal-price-box" style={{ marginBottom: '24px', textAlign: 'left', padding: '16px', background: 'var(--bg-main)', borderRadius: '8px' }}>
-              <span style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Current Price</span>
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px' }}>
-                <h3 style={{ fontSize: '28px', margin: '4px 0 0 0', color: 'var(--text-main)' }}>{formatCurrency(selectedChartAsset.currentPrice, 4)}</h3>
-                <span style={{ fontSize: '14px', fontWeight: '600', color: selectedChartAsset.change24h >= 0 ? '#10b981' : '#ef4444', marginBottom: '6px' }}>
-                  {selectedChartAsset.change24h >= 0 ? '+' : ''}{selectedChartAsset.change24h.toFixed(2)}%
-                </span>
-              </div>
-            </div>
-            
-            <div style={{ width: '100%', height: '350px', marginBottom: '24px' }}>
-              {chartData.length === 0 ? (
-                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
-                  Loading chart data...
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                  <LineChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color)" />
-                    <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: 'var(--text-muted)', fontSize: 12 }} dy={10} minTickGap={30} />
-                    <YAxis 
-                      domain={[(dataMin) => dataMin * 0.9995, (dataMax) => dataMax * 1.0005]} 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{ fill: 'var(--text-muted)', fontSize: 12 }} 
-                      dx={-10} 
-                      tickFormatter={(value) => formatCurrency(value, value < 1 ? 6 : 2)} 
-                    />
-                    <Tooltip 
-                      contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
-                      formatter={(value) => [formatCurrency(value, Number(value) < 1 ? 6 : 2), 'Price']}
-                    />
-                    <Line type="monotone" dataKey="price" stroke="#3b82f6" strokeWidth={2} dot={false} activeDot={{ r: 6, fill: '#3b82f6', stroke: 'white', strokeWidth: 2 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              )}
-            </div>
+        <Separator orientation="vertical" className="h-8 bg-slate-800 mx-2" />
 
-            <div className="modal-buttons">
-              <button 
-                className="confirm-btn" 
-                style={{ width: '100%' }}
-                onClick={() => {
-                  setIsChartModalOpen(false);
-                  setSelectedAsset(selectedChartAsset);
-                  setIsBuyModalOpen(true);
-                }}
-              >
-                Trade {selectedChartAsset.symbol}
-              </button>
+        <div className="flex gap-8">
+          <div className="flex flex-col">
+            <span className="text-[11px] text-slate-400 mb-0.5">24h Change</span>
+            <span className={`text-sm font-bold ${selectedChartAsset.change24h >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
+              {selectedChartAsset.change24h >= 0 ? '+' : ''}{selectedChartAsset.change24h.toFixed(2)}%
+            </span>
+          </div>
+          <div className="flex flex-col hidden sm:flex">
+            <span className="text-[11px] text-slate-400 mb-0.5">Market Status</span>
+            <div className="flex items-center gap-1.5 text-sm font-semibold text-[#0ECB81]">
+              <div className="h-2 w-2 rounded-full bg-[#0ECB81] animate-pulse shadow-[0_0_8px_rgba(14,203,129,0.8)]"></div>
+              OPEN
             </div>
           </div>
         </div>
-      )}
+      </div>
+
+      <Button variant="ghost" size="icon" onClick={() => setIsChartModalOpen(false)} className="text-slate-400 hover:text-white hover:bg-slate-800">
+        <X size={20} />
+      </Button>
+    </header>
+
+    <div className="flex flex-1 overflow-hidden h-[calc(100vh-60px)]">
+      <aside className="w-[260px] border-r border-slate-800 bg-[#11141C] flex flex-col shrink-0 hidden lg:flex">
+        <div className="p-4 border-b border-slate-800">
+          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Market Price</h3>
+          <div className={`text-3xl font-bold ${selectedChartAsset.change24h >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
+            {formatCurrency(selectedChartAsset.currentPrice, 4)}
+          </div>
+          <div className="text-sm text-slate-400 mt-1">≈ {formatCurrency(selectedChartAsset.currentPrice, 2)} USD</div>
+        </div>
+
+        <div className="p-4 flex flex-col gap-3 flex-1">
+          <Button 
+            variant="outline" 
+            className="w-full justify-start text-slate-300 border-slate-700 bg-[#181C25] hover:bg-slate-800 hover:text-white h-10"
+            onClick={() => {
+              setSelectedAlertAsset(selectedChartAsset);
+              setAlertTargetPrice(selectedChartAsset.currentPrice);
+              setIsAlertModalOpen(true);
+            }}
+          >
+            <Bell size={16} className="mr-2 text-blue-400" />
+            Set Price Alert
+          </Button>
+        </div>
+      </aside>
+
+      <main className="flex-1 flex flex-col min-w-0 bg-[#0B0E11] p-2">
+        {chartData.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-800 border-t-blue-500"></div>
+          </div>
+        ) : (
+          <div className="flex-1 rounded-lg overflow-hidden border border-slate-800 relative">
+            {(() => {
+              const chartInfo = formatChartData(chartData);
+              return <TradingViewChart data={chartInfo.candles} volumeData={chartInfo.volume} />;
+            })()}
+          </div>
+        )}
+      </main>
+
+      <aside className="w-[320px] bg-[#11141C] border-l border-slate-800 flex flex-col shrink-0 overflow-y-auto">
+        <div className="p-4 border-b border-slate-800 bg-[#131722]">
+          <Card className="bg-[#181C25] border-slate-700">
+            <CardContent className="p-4 flex justify-between items-center">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-slate-400">Available Balance</span>
+                <span className="text-lg font-bold text-white">
+                  {chartTradeSide === 'BUY' 
+                    ? formatCurrency(user?.balance) 
+                    : `${portfolio.find(p => p.asset.id === selectedChartAsset.id)?.quantity || 0} ${selectedChartAsset.symbol}`}
+                </span>
+              </div>
+              <Wallet className="text-blue-500 opacity-50" size={24} />
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="p-4 flex flex-col flex-1">
+          <Tabs 
+            defaultValue="buy" 
+            value={chartTradeSide.toLowerCase()} 
+            onValueChange={(v) => {
+              if(v === 'sell') {
+                const pItem = portfolio.find(p => p.asset.id === selectedChartAsset.id);
+                if (pItem) setSelectedSellAsset(pItem);
+              }
+              setChartTradeSide(v.toUpperCase());
+            }} 
+            className="w-full mb-4"
+          >
+            <TabsList className="grid w-full grid-cols-2 bg-[#181C25] h-10 border border-slate-800 p-1">
+              <TabsTrigger value="buy" className="data-[state=active]:bg-[#0ECB81] data-[state=active]:text-white text-slate-400 font-bold transition-all">Buy</TabsTrigger>
+              <TabsTrigger value="sell" className="data-[state=active]:bg-[#F6465D] data-[state=active]:text-white text-slate-400 font-bold transition-all">Sell</TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          <div className="flex bg-[#181C25] rounded-lg p-1 border border-slate-800 mb-6">
+            <button 
+              onClick={() => setOrderType('MARKET')}
+              className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${orderType === 'MARKET' ? 'bg-[#2B3139] text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+            >
+              Market Order
+            </button>
+            <button 
+              onClick={() => setOrderType('LIMIT')}
+              className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${orderType === 'LIMIT' ? 'bg-[#2B3139] text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+            >
+              {chartTradeSide === 'BUY' ? 'Auto Buy' : 'Stop Loss'}
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-4 mb-6">
+            {orderType === 'LIMIT' && (
+              <div className="relative flex flex-col gap-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="text-xs font-semibold text-slate-400">Target Price</label>
+                  <Badge variant="outline" className="text-[10px] cursor-pointer hover:bg-slate-800 border-slate-700 text-slate-400" onClick={() => setLimitPrice(selectedChartAsset.currentPrice)}>Set to Current</Badge>
+                </div>
+                <div className="relative">
+                  <Input 
+                    type="number" min="0" step="0.01" 
+                    value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)}
+                    className="bg-[#181C25] border-slate-700 text-white pr-12 h-11 text-right focus-visible:ring-1 focus-visible:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    placeholder={selectedChartAsset.currentPrice.toFixed(2)}
+                  />
+                  <span className="absolute right-3 top-3 text-xs text-slate-400 font-semibold">USD</span>
+                </div>
+              </div>
+            )}
+
+            <div className="relative flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-slate-400">Amount</label>
+              <div className="relative">
+                <Input 
+                  type="number" min="0" step="0.01" 
+                  value={chartTradeSide === 'BUY' ? buyQuantity : sellQuantity}
+                  onChange={(e) => chartTradeSide === 'BUY' ? setBuyQuantity(e.target.value) : setSellQuantity(e.target.value)}
+                  className="bg-[#181C25] border-slate-700 text-white pr-14 h-11 text-right focus-visible:ring-1 focus-visible:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  placeholder="0.00"
+                />
+                <span className="absolute right-3 top-3 text-xs text-slate-400 font-semibold">{selectedChartAsset.symbol}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-2 mb-8">
+            {[0.25, 0.5, 0.75, 1].map((percent) => (
+              <Button
+                key={percent}
+                variant="outline"
+                size="sm"
+                className="flex-1 bg-[#181C25] border-slate-700 text-slate-400 hover:text-white hover:bg-slate-700 h-7 text-xs px-0"
+                onClick={() => {
+                  const priceToUse = orderType === 'LIMIT' && limitPrice ? parseFloat(limitPrice) : selectedChartAsset.currentPrice;
+                  if (chartTradeSide === 'BUY') {
+                    const maxUnits = user.balance / priceToUse;
+                    setBuyQuantity((maxUnits * percent).toFixed(4));
+                  } else {
+                    const pItem = portfolio.find(p => p.asset.id === selectedChartAsset.id);
+                    if (pItem) setSellQuantity((pItem.quantity * percent).toFixed(4));
+                  }
+                }}
+              >
+                {percent === 1 ? '100%' : `${percent * 100}%`}
+              </Button>
+            ))}
+          </div>
+
+          <div className="mt-auto flex flex-col gap-4">
+            <div className="bg-[#181C25] rounded-lg p-3 border border-slate-800 flex justify-between items-center">
+              <span className="text-xs text-slate-400 font-medium">Total Estimation</span>
+              <span className="text-sm font-bold text-white">
+                {formatCurrency((orderType === 'LIMIT' && limitPrice ? parseFloat(limitPrice) : selectedChartAsset.currentPrice) * (parseFloat(chartTradeSide === 'BUY' ? buyQuantity : sellQuantity) || 0))}
+              </span>
+            </div>
+
+            <Button 
+              className={`w-full h-12 text-base font-bold shadow-lg transition-transform active:scale-95 border-none ${
+                chartTradeSide === 'BUY' 
+                  ? 'bg-[#0ECB81] hover:bg-[#0BA86A] text-white shadow-[0_4px_14px_rgba(14,203,129,0.25)]' 
+                  : 'bg-[#F6465D] hover:bg-[#D9384E] text-white shadow-[0_4px_14px_rgba(246,70,93,0.25)]'
+              }`}
+              onClick={() => {
+                if (chartTradeSide === 'BUY') {
+                  handleBuyAsset();
+                } else {
+                  const pItem = portfolio.find(p => p.asset.id === selectedChartAsset.id);
+                  if(!pItem) return toast.error("You don't own any units of this asset to sell!");
+                  handleSellAsset();
+                }
+              }}
+            >
+              {chartTradeSide === 'BUY' ? 'Buy' : 'Sell'} {selectedChartAsset.symbol}
+            </Button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+)}
 
       {isBuyModalOpen && selectedAsset && (
         <div className="modal-overlay">
@@ -1458,6 +2405,19 @@ function Dashboard() {
               <h3 style={{ color: 'var(--text-main)' }}>{formatCurrency(selectedAsset.currentPrice, 4)}</h3>
             </div>
             
+            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+              <button 
+                type="button"
+                onClick={() => setOrderType('MARKET')}
+                style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', background: orderType === 'MARKET' ? '#3b82f6' : 'transparent', color: orderType === 'MARKET' ? 'white' : 'var(--text-main)', cursor: 'pointer', fontWeight: 'bold', transition: '0.2s' }}
+              >Market</button>
+              <button 
+                type="button"
+                onClick={() => setOrderType('LIMIT')}
+                style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', background: orderType === 'LIMIT' ? '#3b82f6' : 'transparent', color: orderType === 'LIMIT' ? 'white' : 'var(--text-main)', cursor: 'pointer', fontWeight: 'bold', transition: '0.2s' }}
+              >Limit (Auto)</button>
+            </div>
+
             <div className="form-group" style={{ marginTop: '20px' }}>
               <label style={{ color: 'var(--text-muted)' }}>Quantity</label>
               <input 
@@ -1471,14 +2431,28 @@ function Dashboard() {
               />
             </div>
 
+            {orderType === 'LIMIT' && (
+              <div className="form-group" style={{ marginTop: '16px' }}>
+                <label style={{ color: 'var(--text-muted)' }}>Target Price (Auto Execute)</label>
+                <input 
+                  type="number" min="0" step="0.01" 
+                  value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)}
+                  placeholder="Enter target price"
+                  style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)' }}
+                />
+              </div>
+            )}
+
             <div className="modal-summary">
               <span style={{ color: 'var(--text-muted)' }}>Estimated Cost:</span>
-              <span style={{ color: 'var(--text-main)' }}>{formatCurrency(selectedAsset.currentPrice * (buyQuantity || 0))}</span>
+              <span style={{ color: 'var(--text-main)' }}>
+                {formatCurrency((orderType === 'LIMIT' && limitPrice ? parseFloat(limitPrice) : selectedAsset.currentPrice) * (buyQuantity || 0))}
+              </span>
             </div>
 
             <div className="modal-buttons">
               <button className="cancel-btn" onClick={() => setIsBuyModalOpen(false)}>Cancel</button>
-              <button className="confirm-btn" onClick={handleBuyAsset}>Confirm Purchase</button>
+              <button className="confirm-btn" onClick={handleBuyAsset}>{orderType === 'LIMIT' ? 'Place Auto Order' : 'Confirm Purchase'}</button>
             </div>
           </div>
         </div>
@@ -1493,6 +2467,19 @@ function Dashboard() {
               <h3 style={{ color: 'var(--text-main)' }}>{formatCurrency(selectedSellAsset.asset.currentPrice, 4)}</h3>
             </div>
             
+            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+              <button 
+                type="button"
+                onClick={() => setOrderType('MARKET')}
+                style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', background: orderType === 'MARKET' ? '#ef4444' : 'transparent', color: orderType === 'MARKET' ? 'white' : 'var(--text-main)', cursor: 'pointer', fontWeight: 'bold', transition: '0.2s' }}
+              >Market</button>
+              <button 
+                type="button"
+                onClick={() => setOrderType('LIMIT')}
+                style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', background: orderType === 'LIMIT' ? '#ef4444' : 'transparent', color: orderType === 'LIMIT' ? 'white' : 'var(--text-main)', cursor: 'pointer', fontWeight: 'bold', transition: '0.2s' }}
+              >Limit (Auto)</button>
+            </div>
+
             <div className="form-group" style={{ marginTop: '20px' }}>
               <label style={{ color: 'var(--text-muted)' }}>Quantity to Sell (Max: {selectedSellAsset.quantity})</label>
               <input 
@@ -1507,27 +2494,132 @@ function Dashboard() {
               />
             </div>
 
+            {orderType === 'LIMIT' && (
+              <div className="form-group" style={{ marginTop: '16px' }}>
+                <label style={{ color: 'var(--text-muted)' }}>Target Price (Auto Execute)</label>
+                <input 
+                  type="number" min="0" step="0.01" 
+                  value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)}
+                  placeholder="Enter target price"
+                  style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)' }}
+                />
+              </div>
+            )}
+
             <div className="modal-summary">
               <span style={{ color: 'var(--text-muted)' }}>Estimated Return:</span>
-              <span className="text-green">{formatCurrency(selectedSellAsset.asset.currentPrice * (sellQuantity || 0))}</span>
+              <span className="text-green">
+                {formatCurrency((orderType === 'LIMIT' && limitPrice ? parseFloat(limitPrice) : selectedSellAsset.asset.currentPrice) * (sellQuantity || 0))}
+              </span>
             </div>
 
             <div className="modal-buttons">
               <button className="cancel-btn" onClick={() => setIsSellModalOpen(false)}>Cancel</button>
-              <button className="sell-confirm-btn" onClick={handleSellAsset}>Confirm Sale</button>
+              <button className="sell-confirm-btn" onClick={handleSellAsset}>{orderType === 'LIMIT' ? 'Place Auto Order' : 'Confirm Sale'}</button>
             </div>
           </div>
           
         </div>
       )}
 
-      {/* --- START CHATBOT --- */}
+      {isAlertModalOpen && selectedAlertAsset && (
+  <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div className="bg-[#11141C] border border-slate-800 rounded-xl w-full max-w-sm p-6 shadow-2xl flex flex-col gap-4 text-slate-200">
+      <div className="flex justify-between items-center mb-2">
+        <h2 className="text-xl font-bold text-white m-0 flex items-center gap-2">
+          <Bell className="text-blue-500" size={20} /> Price Alert
+        </h2>
+        <button onClick={() => setIsAlertModalOpen(false)} className="text-slate-500 hover:text-white transition-colors">
+          <X size={20} />
+        </button>
+      </div>
+      
+      <div className="bg-[#181C25] rounded-lg p-4 flex justify-between items-center border border-slate-800">
+        <span className="text-sm font-semibold text-slate-400">{selectedAlertAsset.symbol} Price</span>
+        <span className="text-xl font-bold text-white">{formatCurrency(selectedAlertAsset.currentPrice, 4)}</span>
+      </div>
+      
+      <form onSubmit={handleAddPriceAlert} className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-slate-400">Condition</label>
+          <div className="flex bg-[#181C25] rounded-lg p-1 border border-slate-800">
+            <button 
+              type="button"
+              onClick={() => setAlertCondition('ABOVE')}
+              className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${alertCondition === 'ABOVE' ? 'bg-[#2B3139] text-white shadow' : 'text-slate-500 hover:text-white'}`}
+            >
+              Goes Above
+            </button>
+            <button 
+              type="button"
+              onClick={() => setAlertCondition('BELOW')}
+              className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${alertCondition === 'BELOW' ? 'bg-[#2B3139] text-white shadow' : 'text-slate-500 hover:text-white'}`}
+            >
+              Drops Below
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-slate-400">Target Price (USD)</label>
+          <div className="relative">
+            <Input 
+              type="number" 
+              min="0" 
+              step="0.0001" 
+              value={alertTargetPrice}
+              onChange={(e) => setAlertTargetPrice(e.target.value)}
+              placeholder="0.0000"
+              required
+              className="w-full bg-[#181C25] border-slate-700 text-white pr-12 h-11 text-right focus-visible:ring-1 focus-visible:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+            <span className="absolute right-3 top-3 text-xs text-slate-400 font-semibold">USD</span>
+          </div>
+        </div>
+
+        <Button type="submit" className="w-full h-11 mt-2 bg-blue-600 hover:bg-blue-700 text-white font-bold border-none">
+          Create Alert
+        </Button>
+      </form>
+    </div>
+  </div>
+)}
       <button 
         className="chatbot-toggle-btn"
         onClick={() => setIsChatOpen(!isChatOpen)}
       >
         {isChatOpen ? <X size={24} /> : <MessageSquare size={24} />}
       </button>
+
+      {is2FAModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal-card" style={{ maxWidth: '400px', textAlign: 'center' }}>
+            <h2 style={{ marginBottom: '8px' }}>Setup 2FA</h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '20px' }}>Scan this QR code with Google Authenticator or Authy.</p>
+            
+            {qrCodeUrl && (
+              <img src={qrCodeUrl} alt="2FA QR Code" style={{ margin: '0 auto 20px auto', borderRadius: '12px', border: '4px solid white', width: '200px', height: '200px' }} />
+            )}
+            
+            <div className="form-group" style={{ textAlign: 'left' }}>
+              <label style={{ color: 'var(--text-muted)' }}>Enter 6-digit code</label>
+              <input 
+                type="text" 
+                maxLength="6" 
+                value={twoFactorCode} 
+                onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ''))} 
+                placeholder="000000" 
+                style={{ backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', borderColor: 'var(--border-color)', textAlign: 'center', fontSize: '24px', letterSpacing: '8px', fontWeight: 'bold' }} 
+              />
+            </div>
+            
+            <div className="modal-buttons" style={{ marginTop: '24px' }}>
+              <button className="cancel-btn" onClick={() => { setIs2FAModalOpen(false); setTwoFactorCode(''); }}>Cancel</button>
+              <button className="confirm-btn" onClick={handleEnable2FA}>Verify & Enable</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isChatOpen && (
         <div className="chatbot-window">
@@ -1549,7 +2641,7 @@ function Dashboard() {
           <form onSubmit={handleChatSubmit} className="chatbot-input-area">
             <input 
               type="text" 
-              placeholder="Întreabă-mă ceva..." 
+              placeholder="Ask me anything..." 
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
             />
@@ -1559,7 +2651,6 @@ function Dashboard() {
           </form>
         </div>
       )}
-      {/* --- END CHATBOT --- */}
 
     </div>
   );

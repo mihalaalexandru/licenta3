@@ -54,10 +54,10 @@ const generateMassiveMarket = async () => {
 
 let tickCounter = 0;
 
+
 const simulateMarket = async () => {
   try {
     const assets = await prisma.asset.findMany();
-    tickCounter++;
 
     for (const asset of assets) {
       const volatility = asset.type === 'CRYPTO' ? 0.002 : 0.0005;
@@ -75,20 +75,15 @@ const simulateMarket = async () => {
         }
       });
 
-      if (tickCounter >= 12) {
-        await prisma.priceHistory.create({
-          data: {
-            assetId: asset.id,
-            price: newPrice
-          }
-        });
-      }
+      await prisma.priceHistory.create({
+        data: {
+          assetId: asset.id,
+          price: newPrice
+        }
+      });
     }
 
-    if (tickCounter >= 12) {
-      tickCounter = 0;
-      await autoCleanHistory();
-    }
+    await autoCleanHistory();
 
   } catch (error) {
     console.error("Eroare in timpul simularii:", error.message);
@@ -97,18 +92,13 @@ const simulateMarket = async () => {
 
 const autoCleanHistory = async () => {
   try {
-    const limitDate = new Date();
-    limitDate.setHours(limitDate.getHours() - 24);
+    const limitDate = new Date(Date.now() - 3 * 60 * 1000);
 
-    const deleted = await prisma.priceHistory.deleteMany({
+    await prisma.priceHistory.deleteMany({
       where: {
         createdAt: { lt: limitDate }
       }
     });
-    
-    if (deleted.count > 0) {
-      console.log(`[Cleanup] S-au sters ${deleted.count} inregistrari mai vechi de 24h.`);
-    }
   } catch (error) {
     console.error("Eroare la auto-clean:", error.message);
   }
@@ -116,8 +106,8 @@ const autoCleanHistory = async () => {
 
 const startSimulator = async () => {
   await generateMassiveMarket();
-  console.log("Simulatorul de piata a pornit (Update la 5s, Istoric la 1m)");
-  setInterval(simulateMarket, 5000);
+  
+  setInterval(simulateMarket, 3000); 
 };
 
 module.exports = { startSimulator };
