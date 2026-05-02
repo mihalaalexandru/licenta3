@@ -33,7 +33,10 @@ import {
   Sparkles,
   Zap,
   Moon,
-  Sun
+  Sun,
+  User,
+  Lock,
+  Shield
 } from 'lucide-react';
 import './Dashboard.css';
 import TradingViewChart from './TradingViewChart';
@@ -1856,242 +1859,289 @@ function Dashboard() {
         );
 
       case 'settings':
-        return (
-          <motion.div variants={containerVariants} initial="hidden" animate="show" className="settings-section" style={{ padding: '24px' }}>
-            <motion.header variants={itemVariants} className="header" style={{ marginBottom: '32px' }}>
-              <h1 style={{ color: 'var(--text-main)', fontSize: '28px', fontWeight: '800' }}>Settings</h1>
-              <p style={{ color: 'var(--text-muted)' }}>Manage your account security, preferences, and funds.</p>
-            </motion.header>
+            return (
+              <motion.div variants={containerVariants} initial="hidden" animate="show" className="p-6 md:p-8 max-w-7xl mx-auto">
+                <motion.header variants={itemVariants} className="mb-10">
+                  <h1 style={{ color: 'var(--text-main)', fontSize: '32px', fontWeight: '800', marginBottom: '8px' }}>Account Settings</h1>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '16px' }}>Manage your security preferences, personal information, and funds.</p>
+                </motion.header>
 
-            <motion.div variants={itemVariants} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '32px', alignItems: 'start' }}>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                <motion.div variants={itemVariants} className="stat-card" style={{ maxWidth: '100%', border: '1px solid var(--border-color)' }}>
-                  <h3 style={{ color: 'var(--text-main)', fontSize: '18px', marginBottom: '24px' }}>Profile Preferences</h3>
-                  <form className="auth-form" style={{ padding: 0, backgroundColor: 'transparent', boxShadow: 'none' }} onSubmit={async (e) => {
-                    e.preventDefault();
-                    try {
-                      const response = await axios.put('http://localhost:3000/api/auth/update-profile', {
-                        userId: user.id,
-                        name: user.name,
-                        currency: user.currency || 'USD',
-                        profilePicture: user.profilePicture
-                      });
-                      localStorage.setItem('user', JSON.stringify(response.data.user));
-                      setUser(response.data.user);
-                      toast.success('Profile preferences updated!');
-                    } catch (err) {
-                      toast.error('Failed to update profile');
-                    }
-                  }}>
-                    <div className="profile-avatar-section">
-                      <div className="profile-avatar-display">
-                        {user.profilePicture ? (
-                          <img src={user.profilePicture} alt="Profile" />
-                        ) : (
-                          <div className="avatar-placeholder">
-                            {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
+                <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  
+                  <div className="flex flex-col gap-8">
+                    <div className="rounded-2xl overflow-hidden" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
+                      <div className="flex items-center gap-3 px-6 py-5 border-b" style={{ borderColor: 'var(--border-color)' }}>
+                        <div className="p-2 rounded-lg" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)' }}>
+                          <User size={20} color="#3b82f6" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-bold" style={{ color: 'var(--text-main)', margin: 0 }}>Profile Details</h3>
+                          <p className="text-xs" style={{ color: 'var(--text-muted)', margin: 0 }}>Update your personal information and avatar</p>
+                        </div>
+                      </div>
+                      
+                      <div className="p-6">
+                        <form onSubmit={async (e) => {
+                          e.preventDefault();
+                          try {
+                            const response = await axios.put('http://localhost:3000/api/auth/update-profile', {
+                              userId: user.id,
+                              name: user.name,
+                              currency: user.currency || 'USD',
+                              profilePicture: user.profilePicture
+                            });
+                            localStorage.setItem('user', JSON.stringify(response.data.user));
+                            setUser(response.data.user);
+                            toast.success('Profile preferences updated!');
+                          } catch (err) {
+                            toast.error('Failed to update profile');
+                          }
+                        }}>
+                          <div className="flex items-center gap-6 mb-6">
+                            <div className="h-20 w-20 rounded-full overflow-hidden flex items-center justify-center shrink-0 border-2" style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--bg-main)' }}>
+                              {user.profilePicture ? (
+                                <img src={user.profilePicture} alt="Profile" className="h-full w-full object-cover" />
+                              ) : (
+                                <span className="text-2xl font-bold" style={{ color: 'var(--text-muted)' }}>{user.name ? user.name.charAt(0).toUpperCase() : 'U'}</span>
+                              )}
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              <input 
+                                type="file" 
+                                accept="image/*"
+                                ref={fileInputRef}
+                                style={{ display: 'none' }} 
+                                onChange={(e) => {
+                                  const file = e.target.files[0];
+                                  if (file) {
+                                    if (file.size > 5000000) return toast.error('File is too large. Maximum size is 5MB.');
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => setUser({...user, profilePicture: reader.result});
+                                    reader.readAsDataURL(file);
+                                  }
+                                }}
+                              />
+                              <button 
+                                type="button" 
+                                onClick={() => fileInputRef.current.click()}
+                                className="px-4 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-80"
+                                style={{ backgroundColor: 'var(--bg-main)', border: '1px solid var(--border-color)', color: 'var(--text-main)', width: 'fit-content' }}
+                              >
+                                Upload New Photo
+                              </button>
+                              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>JPG or PNG. Max size 5MB.</span>
+                            </div>
                           </div>
+
+                          <div className="flex flex-col gap-2 mb-6">
+                            <label className="text-sm font-semibold" style={{ color: 'var(--text-muted)' }}>Full Name</label>
+                            <input 
+                              type="text" 
+                              value={user.name || ''} 
+                              onChange={(e) => setUser({...user, name: e.target.value})} 
+                              className="w-full px-4 py-3 rounded-lg text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500" 
+                              style={{ backgroundColor: 'var(--bg-main)', border: '1px solid var(--border-color)', color: 'var(--text-main)' }} 
+                            />
+                          </div>
+
+                          <button type="submit" className="w-full py-3 rounded-lg text-sm font-bold text-white transition-all shadow-md hover:shadow-lg" style={{ backgroundColor: '#3b82f6' }}>
+                            Save Changes
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl overflow-hidden" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
+                      <div className="flex items-center gap-3 px-6 py-5 border-b" style={{ borderColor: 'var(--border-color)' }}>
+                        <div className="p-2 rounded-lg" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)' }}>
+                          <Lock size={20} color="#3b82f6" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-bold" style={{ color: 'var(--text-main)', margin: 0 }}>Change Password</h3>
+                          <p className="text-xs" style={{ color: 'var(--text-muted)', margin: 0 }}>Ensure your account stays secure</p>
+                        </div>
+                      </div>
+                      
+                      <div className="p-6">
+                        <form onSubmit={async (e) => {
+                          e.preventDefault();
+                          const currentPassword = e.target.currentPassword.value;
+                          const newPassword = e.target.newPassword.value;
+                          const confirmPassword = e.target.confirmPassword.value;
+                          
+                          if (newPassword !== confirmPassword) return toast.error('New passwords do not match');
+                          if (newPassword.length < 6) return toast.error('Password must be at least 6 characters');
+
+                          try {
+                            await axios.put('http://localhost:3000/api/auth/change-password', {
+                              userId: user.id,
+                              currentPassword,
+                              newPassword
+                            });
+                            toast.success('Password updated successfully!');
+                            e.target.reset();
+                          } catch (err) {
+                            toast.error(err.response?.data?.message || 'Error updating password');
+                          }
+                        }}>
+                          <div className="flex flex-col gap-2 mb-4">
+                            <label className="text-sm font-semibold" style={{ color: 'var(--text-muted)' }}>Current Password</label>
+                            <input type="password" name="currentPassword" required className="w-full px-4 py-3 rounded-lg text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500" style={{ backgroundColor: 'var(--bg-main)', border: '1px solid var(--border-color)', color: 'var(--text-main)' }} />
+                          </div>
+                          <div className="flex flex-col gap-2 mb-4">
+                            <label className="text-sm font-semibold" style={{ color: 'var(--text-muted)' }}>New Password</label>
+                            <input type="password" name="newPassword" required className="w-full px-4 py-3 rounded-lg text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500" style={{ backgroundColor: 'var(--bg-main)', border: '1px solid var(--border-color)', color: 'var(--text-main)' }} />
+                          </div>
+                          <div className="flex flex-col gap-2 mb-6">
+                            <label className="text-sm font-semibold" style={{ color: 'var(--text-muted)' }}>Confirm New Password</label>
+                            <input type="password" name="confirmPassword" required className="w-full px-4 py-3 rounded-lg text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500" style={{ backgroundColor: 'var(--bg-main)', border: '1px solid var(--border-color)', color: 'var(--text-main)' }} />
+                          </div>
+                          <button type="submit" className="w-full py-3 rounded-lg text-sm font-bold text-white transition-all shadow-md hover:shadow-lg" style={{ backgroundColor: '#3b82f6' }}>
+                            Update Password
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl p-6 flex justify-between items-center" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
+                      <div className="flex items-center gap-4">
+                        <div className="p-3 rounded-xl" style={{ backgroundColor: 'rgba(251, 191, 36, 0.1)' }}>
+                          <Sparkles size={24} color="#fbbf24" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-bold mb-1" style={{ color: 'var(--text-main)' }}>Dark Mode</h3>
+                          <p className="text-xs m-0" style={{ color: 'var(--text-muted)' }}>Premium immersive experience</p>
+                        </div>
+                      </div>
+                      <div 
+                        onClick={toggleTheme}
+                        className="relative flex items-center w-16 h-8 rounded-full p-1 cursor-pointer transition-colors duration-300"
+                        style={{ backgroundColor: isPremium ? '#2ebd85' : '#64748b' }}
+                      >
+                        <div 
+                          className="absolute w-6 h-6 bg-white rounded-full shadow-md flex items-center justify-center transition-all duration-300"
+                          style={{ left: isPremium ? 'calc(100% - 28px)' : '4px' }}
+                        >
+                          {isPremium ? <Sparkles size={14} color="#2ebd85" /> : <Sun size={14} color="#64748b" />}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-8">
+                    <div className="rounded-2xl overflow-hidden" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
+                      <div className="flex items-center gap-3 px-6 py-5 border-b" style={{ borderColor: 'var(--border-color)' }}>
+                        <div className="p-2 rounded-lg" style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)' }}>
+                          <Wallet size={20} color="#10b981" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-bold" style={{ color: 'var(--text-main)', margin: 0 }}>Wallet Management</h3>
+                          <p className="text-xs" style={{ color: 'var(--text-muted)', margin: 0 }}>Manage your fiat deposits and withdrawals</p>
+                        </div>
+                      </div>
+                      
+                      <div className="p-6">
+                        <div className="flex justify-between items-center mb-6 p-5 rounded-xl" style={{ backgroundColor: 'var(--bg-main)', border: '1px solid var(--border-color)' }}>
+                          <div>
+                            <p className="text-xs font-semibold mb-1" style={{ color: 'var(--text-muted)' }}>Available Balance</p>
+                            <h4 className="text-3xl font-black m-0" style={{ color: 'var(--text-main)' }}>{formatCurrency(user?.balance || 0)}</h4>
+                          </div>
+                        </div>
+                        <div className="flex gap-4">
+                          <button 
+                            onClick={() => setIsDepositModalOpen(true)}
+                            className="flex-1 py-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all hover:opacity-90"
+                            style={{ backgroundColor: '#10b981', color: 'white' }}
+                          >
+                            <ArrowDownRight size={18} /> Add Funds
+                          </button>
+                          <button 
+                            onClick={() => setIsWithdrawModalOpen(true)}
+                            className="flex-1 py-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all hover:bg-opacity-80"
+                            style={{ backgroundColor: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-main)' }}
+                          >
+                            <ArrowUpRight size={18} /> Withdraw
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl overflow-hidden" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
+                      <div className="flex items-center gap-3 px-6 py-5 border-b" style={{ borderColor: 'var(--border-color)' }}>
+                        <div className="p-2 rounded-lg" style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)' }}>
+                          <Shield size={20} color="#8b5cf6" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-bold" style={{ color: 'var(--text-main)', margin: 0 }}>Two-Factor Authentication</h3>
+                          <p className="text-xs" style={{ color: 'var(--text-muted)', margin: 0 }}>Add an extra layer of security</p>
+                        </div>
+                      </div>
+                      
+                      <div className="p-6">
+                        <div className="flex justify-between items-center mb-6 p-4 rounded-xl" style={{ backgroundColor: 'var(--bg-main)', border: '1px solid var(--border-color)' }}>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-sm font-bold" style={{ color: 'var(--text-main)' }}>Authenticator App</span>
+                            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Status: {user?.isTwoFactorEnabled ? 'Active' : 'Inactive'}</span>
+                          </div>
+                          <div className="px-3 py-1 rounded-full text-xs font-bold tracking-wider" style={{ backgroundColor: user?.isTwoFactorEnabled ? 'rgba(16,185,129,0.1)' : 'rgba(246,70,93,0.1)', color: user?.isTwoFactorEnabled ? '#10b981' : '#f6465d' }}>
+                            {user?.isTwoFactorEnabled ? 'ENABLED' : 'DISABLED'}
+                          </div>
+                        </div>
+
+                        {user?.isTwoFactorEnabled ? (
+                          <button 
+                            onClick={handleDisable2FA} 
+                            className="w-full py-3 rounded-lg text-sm font-bold transition-all hover:bg-opacity-10" 
+                            style={{ background: 'transparent', color: '#f6465d', border: '1px solid #f6465d' }}
+                          >
+                            Disable 2FA
+                          </button>
+                        ) : (
+                          <button 
+                            onClick={handleGenerate2FA} 
+                            className="w-full py-3 rounded-lg text-sm font-bold text-white transition-all hover:opacity-90 shadow-md" 
+                            style={{ background: '#8b5cf6' }}
+                          >
+                            Setup 2FA
+                          </button>
                         )}
                       </div>
-                      <div className="profile-avatar-actions">
-                        <label className="settings-label" style={{ color: 'var(--text-muted)' }}>Profile Picture</label>
-                        <input 
-                          type="file" 
-                          accept="image/*"
-                          ref={fileInputRef}
-                          style={{ display: 'none' }} 
-                          onChange={(e) => {
-                            const file = e.target.files[0];
-                            if (file) {
-                              if (file.size > 5000000) return toast.error('File is too large. Maximum size is 5MB.');
-                              const reader = new FileReader();
-                              reader.onloadend = () => setUser({...user, profilePicture: reader.result});
-                              reader.readAsDataURL(file);
-                            }
-                          }}
-                        />
+                    </div>
+
+                    <div className="rounded-2xl overflow-hidden" style={{ backgroundColor: 'rgba(246, 70, 93, 0.02)', border: '1px solid rgba(246, 70, 93, 0.3)', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
+                      <div className="flex items-center gap-3 px-6 py-5 border-b" style={{ borderColor: 'rgba(246, 70, 93, 0.2)' }}>
+                        <div className="p-2 rounded-lg" style={{ backgroundColor: 'rgba(246, 70, 93, 0.1)' }}>
+                          <AlertTriangle size={20} color="#f6465d" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-bold" style={{ color: '#f6465d', margin: 0 }}>Danger Zone</h3>
+                          <p className="text-xs" style={{ color: 'var(--text-muted)', margin: 0 }}>Permanent account operations</p>
+                        </div>
+                      </div>
+                      
+                      <div className="p-6">
+                        <p className="text-sm mb-6 leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                          Once you delete your account, there is no going back. All your portfolio data, personal information, and active limits will be permanently erased.
+                        </p>
                         <button 
-                          type="button" 
-                          className="custom-file-btn"
-                          onClick={() => fileInputRef.current.click()}
+                          onClick={() => setIsDeleteModalOpen(true)}
+                          className="w-full py-3 rounded-lg text-sm font-bold text-white transition-all shadow-md hover:shadow-lg" 
+                          style={{ backgroundColor: '#f6465d' }}
                         >
-                          Choose Image
+                          Delete Account
                         </button>
-                        <p className="helper-text">JPG, PNG or GIF. Max 5MB.</p>
                       </div>
                     </div>
-                    <div className="form-group">
-                      <label className="settings-label" style={{ color: 'var(--text-muted)' }}>Full Name</label>
-                      <input type="text" value={user.name || ''} onChange={(e) => setUser({...user, name: e.target.value})} className="settings-input" style={{ backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', borderColor: 'var(--border-color)' }} />
-                    </div>
-                    <button type="submit" className="submit-btn" style={{ marginTop: '16px' }}>
-                      Save Preferences
-                    </button>
-                  </form>
-                </motion.div>
 
-                <motion.div variants={itemVariants} className="stat-card" style={{ maxWidth: '100%', border: '1px solid var(--border-color)' }}>
-                  <h3 style={{ color: 'var(--text-main)', fontSize: '18px', marginBottom: '20px' }}>Change Password</h3>
-                  <form className="auth-form" style={{ padding: 0, backgroundColor: 'transparent', boxShadow: 'none' }} onSubmit={async (e) => {
-                    e.preventDefault();
-                    const currentPassword = e.target.currentPassword.value;
-                    const newPassword = e.target.newPassword.value;
-                    const confirmPassword = e.target.confirmPassword.value;
-                    
-                    if (newPassword !== confirmPassword) return toast.error('New passwords do not match');
-                    if (newPassword.length < 6) return toast.error('Password must be at least 6 characters');
-
-                    try {
-                      await axios.put('http://localhost:3000/api/auth/change-password', {
-                        userId: user.id,
-                        currentPassword,
-                        newPassword
-                      });
-                      toast.success('Password updated successfully!');
-                      e.target.reset();
-                    } catch (err) {
-                      toast.error(err.response?.data?.message || 'Error updating password');
-                    }
-                  }}>
-                    <div className="form-group">
-                      <label style={{ color: 'var(--text-muted)' }}>Current Password</label>
-                      <input type="password" name="currentPassword" required style={{ backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', borderColor: 'var(--border-color)' }} />
-                    </div>
-                    <div className="form-group">
-                      <label style={{ color: 'var(--text-muted)' }}>New Password</label>
-                      <input type="password" name="newPassword" required style={{ backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', borderColor: 'var(--border-color)' }} />
-                    </div>
-                    <div className="form-group">
-                      <label style={{ color: 'var(--text-muted)' }}>Confirm New Password</label>
-                      <input type="password" name="confirmPassword" required style={{ backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', borderColor: 'var(--border-color)' }} />
-                    </div>
-                    <button type="submit" className="submit-btn" style={{ marginTop: '10px' }}>Update Password</button>
-                  </form>
-                </motion.div>
-                
-                <motion.div variants={itemVariants} className="stat-card" style={{ maxWidth: '100%', border: '1px solid var(--border-color)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <h3 style={{ color: 'var(--text-main)', fontSize: '18px', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <Sparkles size={20} style={{ color: '#fbbf24' }} />
-                        Dark Mode
-                      </h3>
-                      <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: '4px 0 0 0' }}>Enable dark premium theme with enhanced UI design.</p>
-                    </div>
-                    <div 
-                      onClick={toggleTheme}
-                      style={{ 
-                        width: '60px', 
-                        height: '32px', 
-                        borderRadius: '16px', 
-                        background: isPremium ? '#2ebd85' : '#64748b',
-                        cursor: 'pointer',
-                        position: 'relative',
-                        padding: '2px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        transition: 'background 0.3s'
-                      }}
-                    >
-                      <div 
-                        style={{
-                          width: '28px',
-                          height: '28px',
-                          borderRadius: '50%',
-                          background: 'white',
-                          position: 'absolute',
-                          left: isPremium ? '30px' : '2px',
-                          transition: 'left 0.3s',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
-                        }}
-                      >
-                        {isPremium ? <Sparkles size={16} style={{ color: '#2ebd85' }} /> : <Sun size={16} style={{ color: '#64748b' }} />}
-                      </div>
-                    </div>
                   </div>
                 </motion.div>
-              </div>
+              </motion.div>
+            );
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                <motion.div variants={itemVariants} className="stat-card" style={{ maxWidth: '100%', border: '1px solid var(--border-color)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                    <div>
-                      <h3 style={{ color: 'var(--text-main)', fontSize: '18px', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <Wallet size={20} style={{ color: '#3b82f6' }} />
-                        Wallet Management
-                      </h3>
-                      <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: '4px 0 0 0' }}>Manage your fiat balance.</p>
-                    </div>
-                    <div style={{ color: 'var(--text-main)', fontSize: '24px', fontWeight: 'bold' }}>
-                      {formatCurrency(user?.balance || 0)}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    <button 
-                      onClick={() => setIsDepositModalOpen(true)}
-                      className="submit-btn"
-                      style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}
-                    >
-                      <ArrowDownRight size={18} /> Add Funds
-                    </button>
-                    <button 
-                      onClick={() => setIsWithdrawModalOpen(true)}
-                      className="submit-btn"
-                      style={{ flex: 1, background: 'transparent', color: 'var(--text-main)', border: '1px solid var(--border-color)', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}
-                    >
-                      <ArrowUpRight size={18} /> Withdraw
-                    </button>
-                  </div>
-                </motion.div>
-
-                <motion.div variants={itemVariants} className="stat-card" style={{ maxWidth: '100%', border: '1px solid var(--border-color)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <div>
-                      <h3 style={{ color: 'var(--text-main)', fontSize: '18px', margin: 0 }}>Two-Factor Authentication</h3>
-                      <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: '4px 0 0 0' }}>Add an extra layer of security to your account.</p>
-                    </div>
-                    <div style={{ padding: '6px 12px', borderRadius: '8px', backgroundColor: user?.isTwoFactorEnabled ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', color: user?.isTwoFactorEnabled ? '#10b981' : '#ef4444', fontWeight: 'bold', fontSize: '12px' }}>
-                      {user?.isTwoFactorEnabled ? 'ENABLED' : 'DISABLED'}
-                    </div>
-                  </div>
-                  {user?.isTwoFactorEnabled ? (
-                    <button onClick={handleDisable2FA} className="submit-btn" style={{ background: 'transparent', color: '#ef4444', border: '1px solid #ef4444', width: '100%' }}>
-                      Disable 2FA
-                    </button>
-                  ) : (
-                    <button onClick={handleGenerate2FA} className="submit-btn" style={{ width: '100%' }}>
-                      Setup 2FA
-                    </button>
-                  )}
-                </motion.div>
-
-                <motion.div variants={itemVariants} className="stat-card" style={{ maxWidth: '100%', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-                  <h3 style={{ color: '#ef4444', fontSize: '18px', marginBottom: '10px' }}>Danger Zone</h3>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '20px' }}>
-                    Once you delete your account, there is no going back. Please be certain.
-                  </p>
-                  <button 
-                    onClick={() => setIsDeleteModalOpen(true)}
-                    className="submit-btn"
-                    style={{ background: '#ef4444', width: '100%' }}
-                  >
-                    Delete Account
-                  </button>
-                </motion.div>
-
-              </div>
-            </motion.div>
-          </motion.div>
-        );
-
-      default:
-        return null;
-    }
-  };
+          default:
+            return null;
+        }
+      }
 
   if (!user) return <div>Loading...</div>;
 

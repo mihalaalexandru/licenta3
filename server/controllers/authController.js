@@ -99,6 +99,48 @@ const login = async (req, res) => {
   }
 };
 
+const googleLogin = async (req, res) => {
+  try {
+    const { email, name, picture } = req.body;
+
+    let user = await prisma.user.findUnique({ where: { email } });
+
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          email,
+          name,
+          profilePicture: picture,
+          password: 'GoogleLogin!123'
+        }
+      });
+    } else if (!user.profilePicture && picture) {
+      user = await prisma.user.update({
+        where: { email },
+        data: { profilePicture: picture }
+      });
+    }
+
+    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        currency: user.currency,
+        profilePicture: user.profilePicture,
+        balance: user.balance,
+        isTwoFactorEnabled: user.isTwoFactorEnabled
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Google login failed' });
+  }
+};
+
 const verify2FALogin = async (req, res) => {
   try {
     const { userId, token: twoFactorCode, rememberMe } = req.body;
@@ -464,6 +506,7 @@ const disable2FA = async (req, res) => {
 module.exports = {
   register,
   login,
+  googleLogin,
   forgotPassword,
   resetPassword,
   updateUser,

@@ -38,13 +38,15 @@ passport.use(new GoogleStrategy({
         }
       });
 
+      const photoUrl = profile.photos && profile.photos.length > 0 ? profile.photos[0].value : null;
+
       if (user) {
-        if (!user.googleId) {
+        if (!user.googleId || !user.profilePicture) {
           user = await prisma.user.update({
             where: { id: user.id },
             data: { 
               googleId: profile.id,
-              profilePicture: user.profilePicture || (profile.photos && profile.photos.length > 0 ? profile.photos[0].value : null)
+              profilePicture: user.profilePicture || photoUrl
             }
           });
         }
@@ -54,7 +56,7 @@ passport.use(new GoogleStrategy({
             googleId: profile.id,
             name: profile.displayName,
             email: profile.emails[0].value,
-            profilePicture: profile.photos && profile.photos.length > 0 ? profile.photos[0].value : null,
+            profilePicture: photoUrl,
             password: Math.random().toString(36).slice(-10) + "Google!"
           }
         });
