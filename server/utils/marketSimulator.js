@@ -1,66 +1,108 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-// Memorie RAM pentru a stoca istoricul graficelor FĂRĂ să blocăm baza de date
-const liveHistory = {};
-const MAX_HISTORY_POINTS = 1000; // Va ține pe ecran ultimele 1000 de fluctuații (~50 minute de istoric vizual continuu)
+// Retinem pretul de deschidere al zilei pentru fiecare asset (in memorie)
+// Resetat automat la miezul noptii pentru un change24h corect
+const dailyOpenPrices = {};
+let lastResetDay = new Date().getDate();
 
-const simulateMarket = async () => {
-  try {
-    const assets = await prisma.asset.findMany();
+// Timeframes in seconds
+const TIMEFRAMES = {
+  '20s': 20,
+  '1m':  60,
+  '5m':  300,
+  '15m': 900,
+  '1h':  3600,
+  '4h':  14400,
+  '1d':  86400,
+};
+const MAX_CANDLES = 500;
 
-    for (const asset of assets) {
-      // 1. RANDOM WALK: Generăm o mișcare naturală, de ordinul cenților (volatilitate foarte mică)
-      const volatility = asset.type === 'CRYPTO' ? 0.0015 : 0.0005; // 0.15% pentru crypto, 0.05% pentru actiuni
-      const randomMove = asset.currentPrice * (Math.random() * (volatility * 2) - volatility);
-      
-      let newPrice = asset.currentPrice + randomMove;
-      if (newPrice <= 0) newPrice = asset.currentPrice; // Prevenim prețurile negative
-      
-      const priceDiff = newPrice - asset.currentPrice;
-      const newChange24h = asset.change24h + (priceDiff / asset.currentPrice) * 100;
+const candleStore = {};
 
-      // 2. UPDATE BAZA DE DATE: Actualizăm doar prețul curent pentru afișarea în portofoliu
-      await prisma.asset.update({
-        where: { id: asset.id },
-        data: {
-          currentPrice: newPrice,
-          change24h: newChange24h
-        }
-      });
+let _broadcastFn = null;
+const setBroadcastFn = (fn) => { _broadcastFn = fn; };
 
-      // 3. ISTORIC IN RAM (Fără Prisma Create!): Salvăm punctul doar în memoria serverului pentru grafic
-      if (!liveHistory[asset.symbol]) {
-        liveHistory[asset.symbol] = [];
-      }
+const getCandleTime = (unixSec, intervalSec) =>
+  Math.floor(unixSec / intervalSec) * intervalSec;
 
-      const now = Math.floor(Date.now() / 1000); // Timpul în secunde (Unix timestamp)
-      
-      liveHistory[asset.symbol].push({
-        time: now,
-        price: newPrice
-      });
+const updateCandle = (symbol, tfKey, price) => {
+  const intervalSec = TIMEFRAMES[tfKey];
+  const now = Math.floor(Date.now() / 1000);
+  const candleTime = getCandleTime(now, intervalSec);
 
-      // Bandă de rulare: Când ajungem la 1000 de puncte, îl ștergem pe cel mai vechi
-      if (liveHistory[asset.symbol].length > MAX_HISTORY_POINTS) {
-        liveHistory[asset.symbol].shift();
-      }
-    }
-  } catch (error) {
-    console.error("Eroare in timpul simularii live:", error.message);
+  if (!candleStore[symbol]) candleStore[symbol] = {};
+  if (!candleStore[symbol][tfKey]) candleStore[symbol][tfKey] = [];
+
+  const arr = candleStore[symbol][tfKey];
+  const volume = Math.round(100 + Math.random() * 900);
+
+  if (arr.length === 0 || arr[arr.length - 1].time !== candleTime) {
+    const prevClose = arr.length > 0 ? arr[arr.length - 1].close : price;
+    arr.push({ time: candleTime, open: prevClose, high: price, low: price, close: price, volume });
+    if (arr.length > MAX_CANDLES) arr.shift();
+  } else {
+    const c = arr[arr.length - 1];
+    c.close = price;
+    c.high = Math.max(c.high, price);
+    c.low  = Math.min(c.low,  price);
+    c.volume += volume;
+  }
+
+  if (_broadcastFn) {
+    _broadcastFn(symbol, tfKey, arr[arr.length - 1]);
   }
 };
 
-// Această funcție ne va ajuta să trimitem datele direct din RAM către frontend
-const getChartDataFromRAM = (symbol) => {
-  return liveHistory[symbol] || [];
+const simulateMarket = async () => {
+  try {
+    // Reset zilnic la miezul noptii
+    const today = new Date().getDate();
+    if (today !== lastResetDay) {
+      Object.keys(dailyOpenPrices).forEach(k => delete dailyOpenPrices[k]);
+      lastResetDay = today;
+    }
+
+    const assets = await prisma.asset.findMany();
+
+    for (const asset of assets) {
+      // Initializam pretul de deschidere al zilei pentru acest asset
+      if (!dailyOpenPrices[asset.id]) {
+        dailyOpenPrices[asset.id] = asset.currentPrice;
+      }
+
+      const volatility = asset.type === 'CRYPTO' ? 0.0015 : 0.0005;
+      const randomMove = asset.currentPrice * (Math.random() * (volatility * 2) - volatility);
+      let newPrice = asset.currentPrice + randomMove;
+      if (newPrice <= 0) newPrice = asset.currentPrice;
+
+      // change24h = variatie procentuala fata de pretul de deschidere al zilei
+      const openPrice = dailyOpenPrices[asset.id];
+      const newChange24h = ((newPrice - openPrice) / openPrice) * 100;
+
+      await prisma.asset.update({
+        where: { id: asset.id },
+        data: { 
+          currentPrice: newPrice, 
+          change24h: newChange24h }
+      });
+
+      for (const tfKey of Object.keys(TIMEFRAMES)) {
+        updateCandle(asset.symbol, tfKey, newPrice);
+      }
+    }
+  } catch (error) {
+    console.error('Eroare in simularea live:', error.message);
+  }
+};
+
+const getCandles = (symbol, timeframe) => {
+  return (candleStore[symbol] && candleStore[symbol][timeframe]) || [];
 };
 
 const startSimulator = async () => {
-  console.log("📈 Simulatorul de piață a pornit (Mod RAM activat - 0 stres pe baza de date)");
-  
-  // Rulăm simularea o dată la 5 secunde
-  setInterval(simulateMarket, 5000); 
+  console.log(' Simulatorul de piata a pornit ');
+  setInterval(simulateMarket, 3000);
 };
 
-module.exports = { startSimulator, getChartDataFromRAM };
+module.exports = { startSimulator, getCandles, setBroadcastFn, TIMEFRAMES };

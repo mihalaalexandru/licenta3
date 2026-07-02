@@ -131,7 +131,7 @@ const login = async (req, res) => {
       where: { email } 
     });
 
-    if (!user || !(await bcrypt.compare(password, user.password))) {
+    if (!user || !user.password || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
@@ -306,6 +306,8 @@ const loginWithTrustedDevice = async (req, res) => {
     }
 
     const user = await prisma.user.findUnique({ where: { id: parseInt(userId) } });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
     const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '30d' });
 
     res.json({ 
@@ -331,7 +333,8 @@ const forgotPassword = async (req, res) => {
     const user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
-      return res.status(404).json({ message: 'No user found with this email address' });
+      // Returnam mereu 200 pentru a preveni user enumeration
+      return res.status(200).json({ message: 'Email sent successfully' });
     }
 
     const resetToken = crypto.randomBytes(20).toString('hex');
@@ -462,7 +465,7 @@ const changePassword = async (req, res) => {
     
     const user = await prisma.user.findUnique({ where: { id: parseInt(userId) } });
     
-    if (!user || !(await bcrypt.compare(currentPassword, user.password))) {
+    if (!user || !user.password || !(await bcrypt.compare(currentPassword, user.password))) {
       return res.status(401).json({ message: 'Invalid current password' });
     }
     
@@ -496,22 +499,13 @@ const deleteAccount = async (req, res) => {
     
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    if (user.password && !user.password.includes('Google!')) {
+    // Utilizatorii Google au password null (sau cu "Google!" pentru cei vechi)
+    const isGoogleUser = !user.password || user.password.includes('Google!');
+    if (!isGoogleUser) {
       if (!password) return res.status(400).json({ message: 'Password is required to delete account' });
       const isMatch = await bcrypt.compare(password, user.password);
       if (!isMatch) return res.status(401).json({ message: 'Invalid password' });
     }
-  
-
-    const isGoogleUser = user.password === 'GoogleLogin!123';
-
-      if (!isGoogleUser) {
-     if (!password) return res.status(400).json({ message: 'Password is required' });
-       const isMatch = await bcrypt.compare(password, user.password);
-      if (!isMatch) return res.status(401).json({ message: 'Invalid password' });
-}
-
-    
 
     if (user.isTwoFactorEnabled) {
       if (!twoFactorCode) return res.status(400).json({ message: '2FA code is required' });

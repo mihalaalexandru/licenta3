@@ -2,8 +2,7 @@ const { PrismaClient } = require('@prisma/client');
 const axios = require('axios');
 const prisma = new PrismaClient();
 
-// Importăm funcția de citire din RAM din noul nostru simulator
-const { getChartDataFromRAM } = require('../utils/marketSimulator');
+const { getCandles } = require('../utils/marketSimulator');
 
 const getAssets = async (req, res) => {
   try {
@@ -17,8 +16,8 @@ const getAssets = async (req, res) => {
 const getAssetHistory = async (req, res) => {
   try {
     const { id } = req.params;
-    
-    // Găsim simbolul activului pentru că memoria RAM le ține organizate pe simbol (ex: 'BTC')
+    const timeframe = req.query.timeframe || '1m';
+
     const asset = await prisma.asset.findUnique({
       where: { id: parseInt(id) },
       select: { symbol: true }
@@ -28,23 +27,10 @@ const getAssetHistory = async (req, res) => {
       return res.status(404).json({ message: 'Activul nu a fost găsit' });
     }
 
-    // Cerem istoricul direct din memoria RAM a serverului (fără interogări grele pe baza de date)
-    const rawHistory = getChartDataFromRAM(asset.symbol);
-
-    // Formatăm istoricul exact cum se așteaptă frontend-ul
-    const formattedHistory = rawHistory.map(record => ({
-      // Transformăm Unix timestamp (secunde) înapoi într-o dată citibilă
-      time: new Date(record.time * 1000).toLocaleTimeString([], { 
-        hour: '2-digit', 
-        minute: '2-digit', 
-        second: '2-digit' 
-      }),
-      price: Number(record.price)
-    }));
-
-    res.json(formattedHistory);
+    const candles = getCandles(asset.symbol, timeframe);
+    res.json(candles);
   } catch (error) {
-    console.error("Eroare la preluarea istoricului:", error);
+    console.error('Eroare la preluarea istoricului:', error);
     res.status(500).json({ message: 'Error la preluarea istoricului' });
   }
 };

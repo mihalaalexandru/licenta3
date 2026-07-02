@@ -20,7 +20,7 @@ export default function AuthSuccess() {
         localStorage.setItem('user', JSON.stringify(user));
         
         toast.success('Successfully logged in with Google!');
-        navigate('/dashboard');
+        navigate('/dashboard', { replace: true });
       } catch (e) {
         toast.error('Error processing login data.');
         navigate('/login');

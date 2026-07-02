@@ -346,14 +346,11 @@ function Dashboard() {
 
       const interval = setInterval(() => {
         fetchAssets();
-        if (isChartModalOpen && selectedChartAsset) {
-          handleRefreshChartData(selectedChartAsset.id);
-        }
       }, 3000);
 
       return () => clearInterval(interval);
     }
-  }, [navigate, isChartModalOpen, selectedChartAsset]);
+  }, [navigate]);
 
   // Apply premium theme styles
   useEffect(() => {
@@ -701,7 +698,7 @@ function Dashboard() {
     if (!withdrawAmount || isNaN(withdrawAmount) || parseFloat(withdrawAmount) <= 0) {
       return toast.warning('Please enter a valid amount.');
     }
-    if (parseFloat(withdrawAmount) > user.balance) {
+    if (parseFloat(withdrawAmount) > user.balance * (CURRENCY_RATES[user?.currency || 'USD'] || 1)) {
       return toast.warning('Insufficient funds.');
     }
 
@@ -1104,12 +1101,13 @@ function Dashboard() {
                 <div style={{ width: '100%', height: '320px', position: 'relative' }}>
                   <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
                     <LineChart data={balanceHistory}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color)" opacity={0.5} />
-                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: 'var(--text-muted)', fontSize: 12 }} dy={10} minTickGap={30} />
-                      <YAxis axisLine={false} tickLine={false} tick={{ fill: 'var(--text-muted)', fontSize: 12 }} dx={-10} tickFormatter={(value) => formatCurrency(value, 0)} />
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isPremium ? '#2b3139' : '#e2e8f0'} opacity={0.5} />
+                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: isPremium ? '#b0b8c4' : '#64748b', fontSize: 12 }} dy={10} minTickGap={30} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fill: isPremium ? '#b0b8c4' : '#64748b', fontSize: 12 }} dx={-10} tickFormatter={(value) => formatCurrency(value, 0)} />
                       <Tooltip
-                        contentStyle={{ borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)' }}
+                        contentStyle={{ borderRadius: '12px', border: `1px solid ${isPremium ? '#2b3139' : '#e2e8f0'}`, boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', backgroundColor: isPremium ? '#1a1d27' : '#ffffff', color: isPremium ? '#f0f3f7' : '#0f172a' }}
                         itemStyle={{ color: '#3b82f6', fontWeight: 'bold' }}
+                        labelStyle={{ color: isPremium ? '#b0b8c4' : '#64748b', fontSize: '12px' }}
                         formatter={(value) => [formatCurrency(value), 'Balance']}
                       />
                       <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} dot={{ r: 0 }} activeDot={{ r: 6, fill: '#3b82f6', stroke: 'var(--bg-card)', strokeWidth: 3 }} isAnimationActive={true} animationDuration={1500} />
@@ -1143,8 +1141,9 @@ function Dashboard() {
                             ))}
                           </Pie>
                           <Tooltip
-                            contentStyle={{ backgroundColor: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: '12px', color: 'var(--text-main)' }}
-                            itemStyle={{ fontWeight: 'bold', color: 'var(--text-main)' }}
+                            contentStyle={{ backgroundColor: isPremium ? '#1a1d27' : '#ffffff', border: `1px solid ${isPremium ? '#2b3139' : '#e2e8f0'}`, borderRadius: '12px', color: isPremium ? '#f0f3f7' : '#0f172a' }}
+                            itemStyle={{ fontWeight: 'bold', color: isPremium ? '#f0f3f7' : '#0f172a' }}
+                            labelStyle={{ color: isPremium ? '#b0b8c4' : '#64748b', fontSize: '12px' }}
                             formatter={(value) => formatCurrency(value)}
                           />
                         </PieChart>
@@ -1578,17 +1577,18 @@ function Dashboard() {
                 {portfolio.length > 0 ? (
                   <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
                     <BarChart data={pnlData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color)" opacity={0.4} />
-                      <XAxis dataKey="name" stroke="var(--text-muted)" tickLine={false} axisLine={false} tick={{ fontSize: 12 }} dy={10} />
-                      <YAxis stroke="var(--text-muted)" tickLine={false} axisLine={false} tickFormatter={(val) => `$${val}`} tick={{ fontSize: 12, fill: '#ffffff' }} dx={-10} />
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isPremium ? '#2b3139' : '#e2e8f0'} opacity={0.4} />
+                      <XAxis dataKey="name" stroke={isPremium ? '#b0b8c4' : '#64748b'} tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: isPremium ? '#b0b8c4' : '#64748b' }} dy={10} />
+                      <YAxis stroke={isPremium ? '#b0b8c4' : '#64748b'} tickLine={false} axisLine={false} tickFormatter={(val) => `$${val}`} tick={{ fontSize: 12, fill: isPremium ? '#b0b8c4' : '#64748b' }} dx={-10} />
                       <Tooltip
                         cursor={{ fill: 'rgba(255, 255, 255, 0.05)' }}
                         contentStyle={{
-                          backgroundColor: 'var(--bg-main)',
-                          border: '1px solid var(--border-color)',
+                          backgroundColor: isPremium ? '#1a1d27' : '#ffffff',
+                          border: `1px solid ${isPremium ? '#2b3139' : '#e2e8f0'}`,
                           borderRadius: '8px',
-                          color: 'var(--text-main)'
+                          color: isPremium ? '#f0f3f7' : '#0f172a'
                         }}
+                        labelStyle={{ color: isPremium ? '#b0b8c4' : '#64748b', fontSize: '12px' }}
                         formatter={(value) => [formatCurrency(value), 'Profit/Loss']}
                       />
                       <Bar dataKey="pnl" radius={[4, 4, 4, 4]}>
@@ -2605,18 +2605,9 @@ function Dashboard() {
             </aside>
 
             <main className="flex-1 flex flex-col min-w-0 bg-[#0B0E11] p-2">
-              {chartData.length === 0 ? (
-                <div className="flex-1 flex items-center justify-center">
-                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-800 border-t-blue-500"></div>
-                </div>
-              ) : (
-                <div className="flex-1 rounded-lg overflow-hidden border border-slate-800 relative">
-                  {(() => {
-                    const chartInfo = formatChartData(chartData);
-                    return <TradingViewChart data={chartInfo.candles} volumeData={chartInfo.volume} />;
-                  })()}
-                </div>
-              )}
+              <div className="flex-1 rounded-lg overflow-hidden border border-slate-800 relative">
+                <TradingViewChart assetId={selectedChartAsset.id} symbol={selectedChartAsset.symbol} />
+              </div>
             </main>
 
             <aside className="w-[320px] bg-[#11141C] border-l border-slate-800 flex flex-col shrink-0 overflow-y-auto">
@@ -2965,7 +2956,7 @@ function Dashboard() {
                   <div className="sell-price-card">
                     <div className="sell-price-label">Current Market Price</div>
                     <div className="sell-price-value">{formatCurrency(selectedSellAsset.asset.currentPrice, 4)}</div>
-                    <div className="sell-price-change">24h: <span style={{ color: '#10b981' }}>+2.5%</span></div>
+                    <div className="sell-price-change">24h: <span style={{ color: selectedSellAsset.asset.change24h >= 0 ? '#10b981' : '#ef4444' }}>{selectedSellAsset.asset.change24h >= 0 ? '+' : ''}{selectedSellAsset.asset.change24h?.toFixed(2)}%</span></div>
                   </div>
                   <div className="sell-quantity-info">
                     <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Available</div>

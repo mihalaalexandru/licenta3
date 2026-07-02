@@ -32,8 +32,16 @@ const buyAsset = async (req, res) => {
   try {
     const { userId, assetId, quantity } = req.body;
     
+    if (!quantity || parseFloat(quantity) <= 0) {
+      return res.status(400).json({ message: 'Invalid quantity' });
+    }
+
     const user = await prisma.user.findUnique({ where: { id: parseInt(userId) } });
     const asset = await prisma.asset.findUnique({ where: { id: parseInt(assetId) } });
+
+    if (!user || !asset) {
+      return res.status(404).json({ message: 'User or asset not found' });
+    }
 
     const totalCost = asset.currentPrice * parseFloat(quantity);
 
@@ -78,8 +86,17 @@ const sellAsset = async (req, res) => {
     const { userId, assetId, quantity } = req.body;
     const sellQty = parseFloat(quantity);
 
+    if (!sellQty || sellQty <= 0) {
+      return res.status(400).json({ message: 'Invalid quantity' });
+    }
+
     const user = await prisma.user.findUnique({ where: { id: parseInt(userId) } });
     const asset = await prisma.asset.findUnique({ where: { id: parseInt(assetId) } });
+
+    if (!user || !asset) {
+      return res.status(404).json({ message: 'User or asset not found' });
+    }
+
     const portfolioItem = await prisma.portfolio.findUnique({
       where: { userId_assetId: { userId: user.id, assetId: asset.id } }
     });
@@ -171,10 +188,15 @@ const withdrawFunds = async (req, res) => {
     // Suma care îi ajunge efectiv în contul bancar (suma - taxa)
     const receivedAmount = amount - fee;
 
-    await prisma.user.update({
-      where: { id: parseInt(userId) },
-      data: { balance: newBalance }
-    });
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: parseInt(userId) },
+        data: { balance: newBalance }
+      }),
+      prisma.balanceHistory.create({
+        data: { userId: parseInt(userId), balance: newBalance }
+      })
+    ]);
 
     res.json({ 
       message: 'Retragere procesată cu succes.',

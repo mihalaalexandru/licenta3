@@ -59,7 +59,7 @@ passport.use(new GoogleStrategy({
             name: profile.displayName,
             email: profile.emails[0].value,
             profilePicture: photoUrl,
-            password: Math.random().toString(36).slice(-10) + "Google!"
+            password: null
           }
         });
       }
