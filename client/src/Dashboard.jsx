@@ -249,6 +249,27 @@ function Dashboard() {
         const liveAsset = assets.find(a => a.id === prev.id);
         return liveAsset && liveAsset.currentPrice !== prev.currentPrice ? liveAsset : prev;
       });
+
+      // Recompute portfolio derived values (currentValue, profitLoss, profitLossPercentage)
+      // using the latest asset prices so dashboard/portfolio update in real-time
+      setPortfolio(prev => {
+        if (!prev || prev.length === 0) return prev;
+        return prev.map(item => {
+          const liveAsset = assets.find(a => a.id === item.assetId);
+          if (!liveAsset) return item;
+          const currentValue = item.quantity * liveAsset.currentPrice;
+          const investedValue = item.quantity * (item.avgBuyPrice || liveAsset.currentPrice);
+          const profitLoss = currentValue - investedValue;
+          const profitLossPercentage = investedValue > 0 ? (profitLoss / investedValue) * 100 : 0;
+          return {
+            ...item,
+            asset: liveAsset,
+            currentValue,
+            profitLoss,
+            profitLossPercentage
+          };
+        });
+      });
     }
   }, [assets]);
 
